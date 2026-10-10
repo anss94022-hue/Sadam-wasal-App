@@ -1,6 +1,7 @@
 package com.wasal.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +22,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -57,42 +62,234 @@ fun ConversationScreen(
     onBack: () -> Unit = {},
     onSendMessage: (String) -> Unit = {},
     onAttachmentClick: () -> Unit = {},
-    onMoreClick: () -> Unit = {}
+    onMoreClick: () -> Unit = {},
+    isLoading: Boolean = false,
+    isSending: Boolean = false,
+    statusMessage: String? = null
 ) {
     var draft by remember { mutableStateOf("") }
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Column(Modifier.fillMaxSize().background(ChatBackground).imePadding()) {
-            Row(Modifier.fillMaxWidth().background(ChatHeader).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = ChatText) }
-                Surface(Modifier.size(42.dp), shape = CircleShape, color = ChatBubbleOther) {
-                    Box(contentAlignment = Alignment.Center) { Text(title.trim().take(1).ifBlank { "و" }, color = ChatAccent, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+
+    CompositionLocalProvider(
+        LocalLayoutDirection provides LayoutDirection.Rtl
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(ChatBackground)
+                .imePadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(ChatHeader)
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "رجوع",
+                        tint = ChatText
+                    )
                 }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = ChatText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("محادثة وصال", color = ChatMuted, fontSize = 12.sp)
-                }
-                IconButton(onClick = onMoreClick) { Icon(Icons.Default.MoreVert, contentDescription = "خيارات", tint = ChatText) }
-            }
-            if (messages.isEmpty()) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ابدأ محادثتك", color = ChatText, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.size(8.dp))
-                        Text("اكتب رسالة في الأسفل لإرسالها", color = ChatMuted, fontSize = 13.sp)
+
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = CircleShape,
+                    color = ChatBubbleOther
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            title.trim().take(1).ifBlank { "و" },
+                            color = ChatAccent,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
-            } else {
-                LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), reverseLayout = true, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(messages.reversed(), key = { it.id }) { message -> MessageBubble(message) }
+
+                Spacer(Modifier.width(10.dp))
+
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color = ChatText,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "محادثة وصال",
+                        color = ChatMuted,
+                        fontSize = 12.sp
+                    )
+                }
+
+                IconButton(onClick = onMoreClick) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "خيارات",
+                        tint = ChatText
+                    )
                 }
             }
-            Row(Modifier.fillMaxWidth().background(ChatHeader).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onAttachmentClick) { Icon(Icons.Default.AttachFile, contentDescription = "إرفاق ملف", tint = ChatAccent) }
-                BasicTextField(value = draft, onValueChange = { draft = it }, modifier = Modifier.weight(1f).background(ChatBubbleOther, RoundedCornerShape(22.dp)).padding(horizontal = 16.dp, vertical = 13.dp), textStyle = androidx.compose.ui.text.TextStyle(color = ChatText, fontSize = 15.sp), cursorBrush = androidx.compose.ui.graphics.SolidColor(ChatAccent), decorationBox = { innerTextField -> Box { if (draft.isEmpty()) Text("اكتب رسالتك...", color = ChatMuted, fontSize = 14.sp); innerTextField() } })
+
+            if (statusMessage != null) {
+                Text(
+                    text = statusMessage,
+                    color = ChatAccent,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(ChatHeader)
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+
+            when {
+                isLoading && messages.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator(color = ChatAccent)
+                            Spacer(Modifier.size(12.dp))
+                            Text(
+                                "جارٍ تحميل الرسائل...",
+                                color = ChatMuted
+                            )
+                        }
+                    }
+                }
+
+                messages.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                "ابدأ محادثتك",
+                                color = ChatText,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                "اكتب رسالة أو أرفق صورة أو فيديو",
+                                color = ChatMuted,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        reverseLayout = true,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(
+                            items = messages.reversed(),
+                            key = { it.id }
+                        ) { message ->
+                            MessageBubble(message)
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(ChatHeader)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onAttachmentClick,
+                    enabled = !isSending
+                ) {
+                    Icon(
+                        Icons.Default.AttachFile,
+                        contentDescription = "إرفاق صورة أو فيديو أو ملف",
+                        tint = ChatAccent
+                    )
+                }
+
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(
+                            ChatBubbleOther,
+                            RoundedCornerShape(22.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                    enabled = !isSending,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = ChatText,
+                        fontSize = 15.sp
+                    ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                        ChatAccent
+                    ),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    "اكتب رسالتك...",
+                                    color = ChatMuted,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+
                 Spacer(Modifier.width(8.dp))
-                IconButton(onClick = { val text = draft.trim(); if (text.isNotEmpty()) { onSendMessage(text); draft = "" } }, enabled = draft.isNotBlank()) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "إرسال", tint = if (draft.isNotBlank()) ChatAccent else ChatMuted)
+
+                IconButton(
+                    onClick = {
+                        val text = draft.trim()
+                        if (text.isNotEmpty() && !isSending) {
+                            onSendMessage(text)
+                            draft = ""
+                        }
+                    },
+                    enabled = draft.isNotBlank() && !isSending
+                ) {
+                    if (isSending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = ChatAccent,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "إرسال",
+                            tint = if (draft.isNotBlank()) {
+                                ChatAccent
+                            } else {
+                                ChatMuted
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -101,13 +298,117 @@ fun ConversationScreen(
 
 @Composable
 private fun MessageBubble(message: Message) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.isMine) Arrangement.Start else Arrangement.End) {
-        Column(Modifier.fillMaxWidth(0.85f).background(if (message.isMine) ChatBubbleMine else ChatBubbleOther, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = if (message.isMine) 4.dp else 16.dp, bottomEnd = if (message.isMine) 16.dp else 4.dp)).padding(horizontal = 13.dp, vertical = 9.dp)) {
-            Text(message.content, color = ChatText, fontSize = 15.sp)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (message.isMine) {
+            Arrangement.Start
+        } else {
+            Arrangement.End
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .background(
+                    if (message.isMine) ChatBubbleMine else ChatBubbleOther,
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (message.isMine) 4.dp else 16.dp,
+                        bottomEnd = if (message.isMine) 16.dp else 4.dp
+                    )
+                )
+                .padding(horizontal = 13.dp, vertical = 9.dp)
+        ) {
+            when (message.type.lowercase()) {
+                "image" -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription = null,
+                            tint = ChatAccent
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "صورة مرفقة",
+                            color = ChatText,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    AttachmentLink(message.content)
+                }
+
+                "video" -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.PlayCircle,
+                            contentDescription = null,
+                            tint = ChatAccent
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "فيديو مرفق",
+                            color = ChatText,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    AttachmentLink(message.content)
+                }
+
+                "audio" -> {
+                    Text("ملف صوتي مرفق", color = ChatText)
+                    AttachmentLink(message.content)
+                }
+
+                "file" -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Description,
+                            contentDescription = null,
+                            tint = ChatAccent
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("ملف مرفق", color = ChatText)
+                    }
+                    AttachmentLink(message.content)
+                }
+
+                else -> {
+                    Text(
+                        message.content,
+                        color = ChatText,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+
             if (message.time.isNotBlank()) {
                 Spacer(Modifier.size(4.dp))
-                Text(message.time, color = ChatMuted, fontSize = 10.sp, modifier = Modifier.align(Alignment.End))
+                Text(
+                    message.time,
+                    color = ChatMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier.align(Alignment.End)
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun AttachmentLink(url: String) {
+    if (url.isNotBlank()) {
+        Text(
+            text = url,
+            color = ChatAccent,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 6.dp)
+        )
     }
 }
