@@ -93,14 +93,17 @@ private fun WasalHomeScreen(context: Context) {
     val authDataStore = remember(context) {
         AuthDataStore(context)
     }
+
     val authRepository = remember(authDataStore) {
         AuthRepository(authDataStore)
     }
-    val chatRepository = remember {
-        ChatRepository()
+
+    // تمرير AuthDataStore حتى يستطيع المستودع تجديد رمز الدخول.
+    val chatRepository = remember(authDataStore) {
+        ChatRepository(authDataStore)
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(authDataStore, authRepository, chatRepository) {
         isLoading = true
         errorMessage = null
 
@@ -140,6 +143,7 @@ private fun WasalHomeScreen(context: Context) {
             }
 
             conversations = result.getOrThrow()
+
         } catch (exception: Exception) {
             errorMessage = exception.message
                 ?: "حدث خطأ أثناء الاتصال بخادم وصال."
@@ -253,6 +257,7 @@ private fun WasalHomeScreen(context: Context) {
             }
         }
     ) { innerPadding ->
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
