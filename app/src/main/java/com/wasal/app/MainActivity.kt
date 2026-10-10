@@ -1,5 +1,7 @@
+
 package com.wasal.app
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -32,8 +34,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,6 +48,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wasal.app.data.local.AuthDataStore
+import com.wasal.app.data.model.Conversation
+import com.wasal.app.data.repository.AuthRepository
+import com.wasal.app.data.repository.ChatRepository
+import com.wasal.app.ui.screens.ChatsScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 private val WasalNavy = Color(0xFF101B3A)
 private val WasalBackground = Color(0xFF0B1020)
@@ -62,7 +74,7 @@ class MainActivity : ComponentActivity() {
                 LocalLayoutDirection provides LayoutDirection.Rtl
             ) {
                 MaterialTheme {
-                    WasalHomeScreen()
+                    WasalHomeScreen(applicationContext)
                 }
             }
         }
@@ -70,8 +82,71 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun WasalHomeScreen() {
+private fun WasalHomeScreen(context: Context) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var isLoading by remember { mutableStateOf(true) }
+    var conversations by remember {
+        mutableStateOf<List<Conversation>>(emptyList())
+    }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val authDataStore = remember(context) {
+        AuthDataStore(context)
+    }
+    val authRepository = remember(authDataStore) {
+        AuthRepository(authDataStore)
+    }
+    val chatRepository = remember {
+        ChatRepository()
+    }
+
+    LaunchedEffect(Unit) {
+        isLoading = true
+        errorMessage = null
+
+        try {
+            var token = authDataStore.accessToken.first()
+
+            if (token.isNullOrBlank()) {
+                val accountResult = withContext(Dispatchers.IO) {
+                    authRepository.createAccount()
+                }
+
+                if (accountResult.isFailure) {
+                    throw accountResult.exceptionOrNull()
+                        ?: IllegalStateException(
+                            "تعذر إنشاء حساب وصال."
+                        )
+                }
+
+                token = authDataStore.accessToken.first()
+            }
+
+            if (token.isNullOrBlank()) {
+                throw IllegalStateException(
+                    "لم يتم حفظ جلسة الدخول."
+                )
+            }
+
+            val result = withContext(Dispatchers.IO) {
+                chatRepository.getConversations(token)
+            }
+
+            if (result.isFailure) {
+                throw result.exceptionOrNull()
+                    ?: IllegalStateException(
+                        "تعذر تحميل المحادثات."
+                    )
+            }
+
+            conversations = result.getOrThrow()
+        } catch (exception: Exception) {
+            errorMessage = exception.message
+                ?: "حدث خطأ أثناء الاتصال بخادم وصال."
+        } finally {
+            isLoading = false
+        }
+    }
 
     val tabs = listOf(
         "المحادثات",
@@ -89,7 +164,10 @@ private fun WasalHomeScreen() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(WasalNavy)
-                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                    .padding(
+                        horizontal = 18.dp,
+                        vertical = 16.dp
+                    ),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -109,9 +187,7 @@ private fun WasalHomeScreen() {
                 }
 
                 IconButton(
-                    onClick = {
-                        selectedTab = 0
-                    }
+                    onClick = { selectedTab = 0 }
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
@@ -177,31 +253,49 @@ private fun WasalHomeScreen() {
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(18.dp)
         ) {
             when (selectedTab) {
-                0 -> EmptySection(
-                    title = "محادثاتك",
-                    message = "ستظهر محادثاتك هنا عندما تصبح متاحة."
-                )
+                0 -> {
+                    when {
+                        isLoading -> StatusSection(
+                            title = "جارٍ الاتصال بوصال",
+                            message = "يتم تجهيز الحساب وتحميل محادثاتك."
+                        )
 
-                1 -> EmptySection(
+                        errorMessage != null -> StatusSection(
+                            title = "تعذر تحميل المحادثات",
+                            message = errorMessage!!
+                        )
+
+                        else -> ChatsScreen(
+                            conversations = conversations,
+                            onConversationClick = {
+                                // سيتم ربط فتح المحادثة في خطوة لاحقة.
+                            },
+                            onSearchClick = {
+                                // البحث داخل قائمة المحادثات متاح في الشاشة.
+                            }
+                        )
+                    }
+                }
+
+                1 -> StatusSection(
                     title = "جهات الاتصال",
-                    message = "ستتمكن من الوصول إلى جهات اتصالك من هنا."
+                    message = "سيتم ربط جهات الاتصال برمز وصال المكوّن من 15 حرفًا ورقمًا."
                 )
 
-                2 -> EmptySection(
+                2 -> StatusSection(
                     title = "المكالمات",
-                    message = "ستظهر مكالماتك هنا."
+                    message = "ستظهر هنا واجهة المكالمات بعد ربط خادم الوسائط والمكالمات."
                 )
 
-                3 -> EmptySection(
+                3 -> StatusSection(
                     title = "الإعدادات",
-                    message = "إعدادات تطبيق وصال."
+                    message = "إعدادات حساب وصال والخصوصية."
                 )
             }
         }
@@ -209,12 +303,14 @@ private fun WasalHomeScreen() {
 }
 
 @Composable
-private fun EmptySection(
+private fun StatusSection(
     title: String,
     message: String
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -241,7 +337,7 @@ private fun EmptySection(
         Text(
             text = title,
             color = WasalText,
-            fontSize = 22.sp,
+            fontSize = 21.sp,
             fontWeight = FontWeight.Bold
         )
 
