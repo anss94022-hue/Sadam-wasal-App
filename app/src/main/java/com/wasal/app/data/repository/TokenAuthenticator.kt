@@ -1,4 +1,3 @@
-
 package com.wasal.app.data.repository
 
 import com.wasal.app.data.local.AuthDataStore
@@ -15,16 +14,16 @@ class TokenAuthenticator(
 ) {
 
     /**
-     * طلب رمز دخول جديد باستخدام رمز التحديث المحفوظ.
-     * يجب استدعاء هذه الدالة من coroutine.
+     * تجديد رمز الدخول وحفظ الرمزين الجديدين.
+     * يجب استدعاء الدالة من coroutine.
      */
     suspend fun refreshAccessToken(): Result<String> =
         withContext(Dispatchers.IO) {
             try {
-                val refreshToken =
+                val oldRefreshToken =
                     authDataStore.refreshToken.first()
 
-                if (refreshToken.isNullOrBlank()) {
+                if (oldRefreshToken.isNullOrBlank()) {
                     return@withContext Result.failure(
                         IOException(
                             "رمز التحديث غير موجود. يلزم تسجيل الدخول مجددًا."
@@ -33,7 +32,7 @@ class TokenAuthenticator(
                 }
 
                 val payload = JSONObject()
-                    .put("refreshToken", refreshToken)
+                    .put("refreshToken", oldRefreshToken)
                     .toString()
 
                 val request = CoreApiClient.post(
@@ -49,54 +48,55 @@ class TokenAuthenticator(
                             JSONObject(body).optString("error")
                         }.getOrDefault("")
 
+                        val message = when (error) {
+                            "INVALID_OR_EXPIRED_REFRESH_TOKEN" ->
+                                "انتهت صلاحية الجلسة. يلزم تسجيل الدخول مجددًا."
+
+                            "REFRESH_TOKEN_REQUIRED" ->
+                                "رمز التحديث غير موجود."
+
+                            else ->
+                                "تعذر تجديد الجلسة. رمز الاستجابة: ${response.code}"
+                        }
+
                         return@withContext Result.failure(
-                            IOException(
-                                when (error) {
-                                    "INVALID_OR_EXPIRED_REFRESH_TOKEN" ->
-                                        "انتهت صلاحية الجلسة. يلزم تسجيل الدخول مجددًا."
-
-                                    "REFRESH_TOKEN_REQUIRED" ->
-                                        "رمز التحديث غير موجود."
-
-                                    else ->
-                                        "تعذر تجديد الجلسة. رمز الاستجابة: ${response.code}"
-                                }
-                            )
+                            IOException(message)
                         )
                     }
 
                     val root = JSONObject(body)
+
                     val newAccessToken =
                         root.optString("accessToken")
 
-                    if (newAccessToken.isBlank()) {
+                    val newRefreshToken =
+                        root.optString("refreshToken")
+
+                    if (
+                        newAccessToken.isBlank() ||
+                        newRefreshToken.isBlank()
+                    ) {
                         return@withContext Result.failure(
                             IOException(
-                                "لم يرجع الخادم رمز دخول جديدًا."
+                                "لم يرجع الخادم رمزي الجلسة الجديدين."
                             )
                         )
                     }
 
-                    val savedRefreshToken =
-                        authDataStore.refreshToken.first()
-
                     val userId =
                         authDataStore.userId.first()
 
-                    if (
-                        savedRefreshToken.isNullOrBlank() ||
-                        userId.isNullOrBlank()
-                    ) {
+                    if (userId.isNullOrBlank()) {
                         return@withContext Result.failure(
                             IOException(
-                                "بيانات الجلسة غير مكتملة."
+                                "معرّف المستخدم غير موجود."
                             )
                         )
                     }
 
                     authDataStore.saveSession(
                         accessToken = newAccessToken,
-                        refreshToken = savedRefreshToken,
+                        refreshToken = newRefreshToken,
                         userId = userId
                     )
 
