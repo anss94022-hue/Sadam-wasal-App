@@ -1,10 +1,12 @@
-
 package com.wasal.app
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,11 +54,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasal.app.data.local.AuthDataStore
 import com.wasal.app.data.model.Conversation
+import com.wasal.app.data.model.Message
 import com.wasal.app.data.repository.AuthRepository
 import com.wasal.app.data.repository.ChatRepository
+import com.wasal.app.data.repository.MediaRepository
+import com.wasal.app.data.repository.MessageRepository
 import com.wasal.app.ui.screens.ChatsScreen
+import com.wasal.app.ui.screens.ConversationScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val WasalNavy = Color(0xFF101B3A)
@@ -65,7 +74,6 @@ private val WasalText = Color(0xFFF4F6FF)
 private val WasalMuted = Color(0xFF9AA7C7)
 
 class MainActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -84,6 +92,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun WasalHomeScreen(context: Context) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedConversation by remember {
+        mutableStateOf<Conversation?>(null)
+    }
     var isLoading by remember { mutableStateOf(true) }
     var conversations by remember {
         mutableStateOf<List<Conversation>>(emptyList())
@@ -93,17 +104,14 @@ private fun WasalHomeScreen(context: Context) {
     val authDataStore = remember(context) {
         AuthDataStore(context)
     }
-
     val authRepository = remember(authDataStore) {
         AuthRepository(authDataStore)
     }
-
-    // تمرير AuthDataStore حتى يستطيع المستودع تجديد رمز الدخول.
     val chatRepository = remember(authDataStore) {
         ChatRepository(authDataStore)
     }
 
-    LaunchedEffect(authDataStore, authRepository, chatRepository) {
+    LaunchedEffect(authDataStore) {
         isLoading = true
         errorMessage = null
 
@@ -111,45 +119,46 @@ private fun WasalHomeScreen(context: Context) {
             var token = authDataStore.accessToken.first()
 
             if (token.isNullOrBlank()) {
-                val accountResult = withContext(Dispatchers.IO) {
+                val result = withContext(Dispatchers.IO) {
                     authRepository.createAccount()
                 }
 
-                if (accountResult.isFailure) {
-                    throw accountResult.exceptionOrNull()
-                        ?: IllegalStateException(
-                            "تعذر إنشاء حساب وصال."
-                        )
+                if (result.isFailure) {
+                    throw result.exceptionOrNull()
+                        ?: IllegalStateException("تعذر إنشاء حساب وصال.")
                 }
 
                 token = authDataStore.accessToken.first()
             }
 
             if (token.isNullOrBlank()) {
-                throw IllegalStateException(
-                    "لم يتم حفظ جلسة الدخول."
-                )
+                throw IllegalStateException("لم يتم حفظ جلسة الدخول.")
             }
 
             val result = withContext(Dispatchers.IO) {
                 chatRepository.getConversations(token)
             }
 
-            if (result.isFailure) {
-                throw result.exceptionOrNull()
-                    ?: IllegalStateException(
-                        "تعذر تحميل المحادثات."
-                    )
+            conversations = result.getOrElse {
+                throw it
             }
-
-            conversations = result.getOrThrow()
-
-        } catch (exception: Exception) {
-            errorMessage = exception.message
-                ?: "حدث خطأ أثناء الاتصال بخادم وصال."
+        } catch (e: Exception) {
+            errorMessage = e.message ?: "تعذر الاتصال بخادم وصال."
         } finally {
             isLoading = false
         }
+    }
+
+    val currentConversation = selectedConversation
+
+    if (currentConversation != null) {
+        ConversationFlow(
+            context = context,
+            authDataStore = authDataStore,
+            conversation = currentConversation,
+            onBack = { selectedConversation = null }
+        )
+        return
     }
 
     val tabs = listOf(
@@ -168,10 +177,7 @@ private fun WasalHomeScreen(context: Context) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(WasalNavy)
-                    .padding(
-                        horizontal = 18.dp,
-                        vertical = 16.dp
-                    ),
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -182,7 +188,6 @@ private fun WasalHomeScreen(context: Context) {
                         fontSize = 27.sp,
                         fontWeight = FontWeight.Bold
                     )
-
                     Text(
                         text = tabs[selectedTab],
                         color = WasalMuted,
@@ -190,11 +195,9 @@ private fun WasalHomeScreen(context: Context) {
                     )
                 }
 
-                IconButton(
-                    onClick = { selectedTab = 0 }
-                ) {
+                IconButton(onClick = { selectedTab = 0 }) {
                     Icon(
-                        imageVector = Icons.Default.Search,
+                        Icons.Default.Search,
                         contentDescription = "بحث",
                         tint = WasalText,
                         modifier = Modifier.size(26.dp)
@@ -211,53 +214,37 @@ private fun WasalHomeScreen(context: Context) {
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     icon = {
-                        Icon(
-                            Icons.Default.Chat,
-                            contentDescription = "المحادثات"
-                        )
+                        Icon(Icons.Default.Chat, contentDescription = "المحادثات")
                     },
                     label = { Text("المحادثات") }
                 )
-
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     icon = {
-                        Icon(
-                            Icons.Default.Contacts,
-                            contentDescription = "جهات الاتصال"
-                        )
+                        Icon(Icons.Default.Contacts, contentDescription = "جهات الاتصال")
                     },
                     label = { Text("جهات الاتصال") }
                 )
-
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     icon = {
-                        Icon(
-                            Icons.Default.Call,
-                            contentDescription = "المكالمات"
-                        )
+                        Icon(Icons.Default.Call, contentDescription = "المكالمات")
                     },
                     label = { Text("المكالمات") }
                 )
-
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
                     icon = {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = "الإعدادات"
-                        )
+                        Icon(Icons.Default.Settings, contentDescription = "الإعدادات")
                     },
                     label = { Text("الإعدادات") }
                 )
             }
         }
     ) { innerPadding ->
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -268,7 +255,7 @@ private fun WasalHomeScreen(context: Context) {
                     when {
                         isLoading -> StatusSection(
                             title = "جارٍ الاتصال بوصال",
-                            message = "يتم تجهيز الحساب وتحميل محادثاتك."
+                            message = "يتم تجهيز الحساب وتحميل المحادثات."
                         )
 
                         errorMessage != null -> StatusSection(
@@ -278,33 +265,191 @@ private fun WasalHomeScreen(context: Context) {
 
                         else -> ChatsScreen(
                             conversations = conversations,
-                            onConversationClick = {
-                                // سيتم ربط فتح المحادثة في خطوة لاحقة.
+                            onConversationClick = { conversation ->
+                                selectedConversation = conversation
                             },
-                            onSearchClick = {
-                                // البحث داخل قائمة المحادثات متاح في الشاشة.
-                            }
+                            onSearchClick = {}
                         )
                     }
                 }
 
                 1 -> StatusSection(
                     title = "جهات الاتصال",
-                    message = "سيتم ربط جهات الاتصال برمز وصال المكوّن من 15 حرفًا ورقمًا."
+                    message = "سيتم ربط جهات الاتصال برمز وصال."
                 )
 
                 2 -> StatusSection(
                     title = "المكالمات",
-                    message = "ستظهر هنا واجهة المكالمات بعد ربط خادم الوسائط والمكالمات."
+                    message = "واجهة المكالمات تحتاج إلى استكمال الربط."
                 )
 
-                3 -> StatusSection(
+                else -> StatusSection(
                     title = "الإعدادات",
                     message = "إعدادات حساب وصال والخصوصية."
                 )
             }
         }
     }
+}
+
+@Composable
+private fun ConversationFlow(
+    context: Context,
+    authDataStore: AuthDataStore,
+    conversation: Conversation,
+    onBack: () -> Unit
+) {
+    val messageRepository = remember(authDataStore) {
+        MessageRepository(authDataStore)
+    }
+    val mediaRepository = remember(context, authDataStore) {
+        MediaRepository(context, authDataStore)
+    }
+    val scope = rememberCoroutineScope()
+
+    var messages by remember(conversation.id) {
+        mutableStateOf<List<Message>>(emptyList())
+    }
+    var isLoading by remember { mutableStateOf(true) }
+    var isSending by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    val picker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null && !isSending) {
+            scope.launch {
+                isSending = true
+                statusMessage = "جارٍ رفع المرفق..."
+
+                try {
+                    val uploaded = withContext(Dispatchers.IO) {
+                        mediaRepository.upload(uri)
+                    }
+
+                    val media = uploaded.getOrElse {
+                        throw it
+                    }
+
+                    statusMessage = "تم رفع الملف، جارٍ إرسال الرسالة..."
+
+                    val token = authDataStore.accessToken.first()
+                        .orEmpty()
+                    val userId = authDataStore.userId.first()
+                        .orEmpty()
+
+                    if (token.isBlank() || userId.isBlank()) {
+                        throw IllegalStateException(
+                            "جلسة وصال غير مكتملة. تحقق من تسجيل الدخول."
+                        )
+                    }
+
+                    val sent = withContext(Dispatchers.IO) {
+                        messageRepository.sendMediaMessage(
+                            conversationId = conversation.id,
+                            media = media,
+                            accessToken = token,
+                            currentUserId = userId
+                        )
+                    }
+
+                    val message = sent.getOrElse {
+                        throw it
+                    }
+
+                    messages = messages + message
+                    statusMessage = "تم إرسال المرفق."
+                } catch (e: Exception) {
+                    statusMessage = e.message ?: "تعذر إرسال المرفق."
+                } finally {
+                    isSending = false
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(conversation.id) {
+        isLoading = true
+        statusMessage = null
+
+        try {
+            val token = authDataStore.accessToken.first().orEmpty()
+            val userId = authDataStore.userId.first().orEmpty()
+
+            if (token.isBlank() || userId.isBlank()) {
+                throw IllegalStateException("جلسة وصال غير مكتملة.")
+            }
+
+            val result = withContext(Dispatchers.IO) {
+                messageRepository.getMessages(
+                    conversationId = conversation.id,
+                    accessToken = token,
+                    currentUserId = userId
+                )
+            }
+
+            messages = result.getOrElse { throw it }
+        } catch (e: Exception) {
+            statusMessage = e.message ?: "تعذر تحميل الرسائل."
+        } finally {
+            isLoading = false
+        }
+    }
+
+    ConversationScreen(
+        title = conversation.title,
+        messages = messages,
+        onBack = onBack,
+        isLoading = isLoading,
+        isSending = isSending,
+        statusMessage = statusMessage,
+        onAttachmentClick = {
+            if (!isSending) {
+                picker.launch(
+                    arrayOf(
+                        "image/*",
+                        "video/*",
+                        "audio/*",
+                        "application/pdf",
+                        "application/octet-stream"
+                    )
+                )
+            }
+        },
+        onSendMessage = { text ->
+            scope.launch {
+                isSending = true
+                statusMessage = null
+
+                try {
+                    val token = authDataStore.accessToken.first().orEmpty()
+                    val userId = authDataStore.userId.first().orEmpty()
+
+                    if (token.isBlank() || userId.isBlank()) {
+                        throw IllegalStateException(
+                            "جلسة وصال غير مكتملة."
+                        )
+                    }
+
+                    val result = withContext(Dispatchers.IO) {
+                        messageRepository.sendTextMessage(
+                            conversationId = conversation.id,
+                            content = text,
+                            accessToken = token,
+                            currentUserId = userId
+                        )
+                    }
+
+                    val message = result.getOrElse { throw it }
+                    messages = messages + message
+                } catch (e: Exception) {
+                    statusMessage = e.message ?: "تعذر إرسال الرسالة."
+                } finally {
+                    isSending = false
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -359,10 +504,7 @@ private fun StatusSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    color = WasalCard,
-                    shape = RoundedCornerShape(16.dp)
-                )
+                .background(WasalCard, RoundedCornerShape(16.dp))
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
