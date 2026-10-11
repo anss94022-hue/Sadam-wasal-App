@@ -147,14 +147,19 @@ private fun WasalHomeScreen(context: Context) {
 
     val scope = rememberCoroutineScope()
 
-    suspend fun refreshConversations(token: String) {
+    suspend fun refreshConversations(
+        token: String
+    ): List<Conversation> {
         val result = withContext(Dispatchers.IO) {
             chatRepository.getConversations(token)
         }
 
-        conversations = result.getOrElse {
+        val loaded = result.getOrElse {
             throw it
         }
+
+        conversations = loaded
+        return loaded
     }
 
     LaunchedEffect(authDataStore) {
@@ -162,9 +167,15 @@ private fun WasalHomeScreen(context: Context) {
         errorMessage = null
 
         try {
-            var token = authDataStore.accessToken.first()
+            var token = authDataStore.accessToken.first().orEmpty()
+            var userId = authDataStore.userId.first().orEmpty()
 
-            if (token.isNullOrBlank()) {
+            /*
+             * لا تنشئ حساباً جديداً إذا كان هناك مستخدم محفوظ
+             * محلياً ولكن رمز الدخول غير متوفر.
+             * في هذه الحالة نحاول عرض المحادثات المخزنة.
+             */
+            if (token.isBlank() && userId.isBlank()) {
                 val result = withContext(Dispatchers.IO) {
                     authRepository.createAccount()
                 }
@@ -176,36 +187,48 @@ private fun WasalHomeScreen(context: Context) {
                         )
                 }
 
-                token = authDataStore.accessToken.first()
+                token = authDataStore.accessToken.first().orEmpty()
+                userId = authDataStore.userId.first().orEmpty()
             }
 
-            if (token.isNullOrBlank()) {
+            if (userId.isBlank()) {
                 throw IllegalStateException(
-                    "لم يتم حفظ جلسة الدخول."
+                    "معرّف المستخدم غير موجود على هذا الجهاز."
                 )
             }
 
+            /*
+             * ChatRepository مسؤول عن إرجاع النسخة المحفوظة
+             * عندما لا يتوفر الإنترنت أو رمز الدخول.
+             */
             refreshConversations(token)
 
-            val userId = authDataStore.userId.first().orEmpty()
+            /*
+             * لا نحاول جلب الملف الشخصي من الخادم دون رمز دخول.
+             * نحتفظ بالقيم الافتراضية إلى أن تتوفر جلسة صالحة.
+             */
+            if (token.isNotBlank()) {
+                val profileResult = withContext(Dispatchers.IO) {
+                    profileRepository.getMyProfile(
+                        userId = userId,
+                        accessToken = token
+                    )
+                }
 
-            val profileResult = withContext(Dispatchers.IO) {
-                profileRepository.getMyProfile(
-                    userId = userId,
-                    accessToken = token
-                )
-            }
-
-            profileResult.onSuccess { profile ->
-                displayName = profile.displayName
-                wasalCode = profile.wasalCode
-            }.onFailure { error ->
-                errorMessage = error.message
-                    ?: "تعذر تحميل بيانات الحساب."
+                profileResult.onSuccess { profile ->
+                    displayName = profile.displayName
+                    wasalCode = profile.wasalCode
+                }.onFailure { error ->
+                    errorMessage = error.message
+                        ?: "تعذر تحديث بيانات الحساب."
+                }
+            } else if (conversations.isEmpty()) {
+                errorMessage =
+                    "لا يوجد اتصال بالإنترنت ولا توجد محادثات محفوظة بعد."
             }
         } catch (e: Exception) {
             errorMessage = e.message
-                ?: "تعذر الاتصال بخادم وصال."
+                ?: "تعذر تحميل بيانات وصال."
         } finally {
             isLoading = false
         }
@@ -284,66 +307,50 @@ private fun WasalHomeScreen(context: Context) {
             ) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
-                    onClick = {
-                        selectedTab = 0
-                    },
+                    onClick = { selectedTab = 0 },
                     icon = {
                         Icon(
                             Icons.Default.Chat,
                             contentDescription = "المحادثات"
                         )
                     },
-                    label = {
-                        Text("المحادثات")
-                    }
+                    label = { Text("المحادثات") }
                 )
 
                 NavigationBarItem(
                     selected = selectedTab == 1,
-                    onClick = {
-                        selectedTab = 1
-                    },
+                    onClick = { selectedTab = 1 },
                     icon = {
                         Icon(
                             Icons.Default.Contacts,
                             contentDescription = "جهات الاتصال"
                         )
                     },
-                    label = {
-                        Text("جهات الاتصال")
-                    }
+                    label = { Text("جهات الاتصال") }
                 )
 
                 NavigationBarItem(
                     selected = selectedTab == 2,
-                    onClick = {
-                        selectedTab = 2
-                    },
+                    onClick = { selectedTab = 2 },
                     icon = {
                         Icon(
                             Icons.Default.Call,
                             contentDescription = "المكالمات"
                         )
                     },
-                    label = {
-                        Text("المكالمات")
-                    }
+                    label = { Text("المكالمات") }
                 )
 
                 NavigationBarItem(
                     selected = selectedTab == 3,
-                    onClick = {
-                        selectedTab = 3
-                    },
+                    onClick = { selectedTab = 3 },
                     icon = {
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "الإعدادات"
                         )
                     },
-                    label = {
-                        Text("الإعدادات")
-                    }
+                    label = { Text("الإعدادات") }
                 )
             }
         }
@@ -359,8 +366,8 @@ private fun WasalHomeScreen(context: Context) {
                     when {
                         isLoading -> {
                             StatusSection(
-                                title = "جارٍ الاتصال بوصال",
-                                message = "يتم تجهيز الحساب وتحميل المحادثات."
+                                title = "جارٍ تجهيز وصال",
+                                message = "جارٍ تحميل المحادثات المحفوظة أو تحديثها."
                             )
                         }
 
@@ -415,7 +422,7 @@ private fun WasalHomeScreen(context: Context) {
 
                                         if (token.isBlank()) {
                                             throw IllegalStateException(
-                                                "جلسة وصال غير مكتملة."
+                                                "يلزم الاتصال بالإنترنت وتوفر جلسة دخول لإضافة جهة اتصال."
                                             )
                                         }
 
@@ -447,10 +454,11 @@ private fun WasalHomeScreen(context: Context) {
                                             } + found
                                         )
 
-                                        refreshConversations(token)
+                                        val updatedConversations =
+                                            refreshConversations(token)
 
                                         val createdConversation =
-                                            conversations.firstOrNull {
+                                            updatedConversations.firstOrNull {
                                                 it.id == conversationId
                                             }
 
@@ -461,8 +469,7 @@ private fun WasalHomeScreen(context: Context) {
                                         } else {
                                             selectedTab = 0
                                             errorMessage =
-                                                "تم إرسال طلب إنشاء المحادثة. " +
-                                                "إذا لم تظهر، أعد فتح صفحة المحادثات."
+                                                "لم يرجع الخادم المحادثة الجديدة ضمن القائمة. تحقق من استجابة الخادم."
                                         }
                                     } catch (e: Exception) {
                                         errorMessage = e.message
@@ -564,7 +571,7 @@ private fun ConversationFlow(
 
                     if (token.isBlank() || userId.isBlank()) {
                         throw IllegalStateException(
-                            "جلسة وصال غير مكتملة. تحقق من تسجيل الدخول."
+                            "يلزم الاتصال بالإنترنت وتوفر جلسة دخول لإرسال المرفق."
                         )
                     }
 
@@ -606,8 +613,6 @@ private fun ConversationFlow(
                 .first()
                 .orEmpty()
 
-            // يسمح بمحاولة قراءة الرسائل المخزنة محلياً
-            // حتى لو لم يتوفر رمز الدخول.
             if (userId.isBlank()) {
                 throw IllegalStateException(
                     "معرّف المستخدم غير موجود."
@@ -669,7 +674,7 @@ private fun ConversationFlow(
 
                     if (token.isBlank() || userId.isBlank()) {
                         throw IllegalStateException(
-                            "جلسة وصال غير مكتملة."
+                            "يلزم الاتصال بالإنترنت وتوفر جلسة دخول لإرسال الرسائل."
                         )
                     }
 
