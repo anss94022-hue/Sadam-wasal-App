@@ -12,15 +12,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +36,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,9 +53,18 @@ fun SettingsScreen(
     wasalCode: String = "",
     statusMessage: String? = null,
     isBusy: Boolean = false,
-    onLogout: () -> Unit = {}
+    onLogout: () -> Unit = {},
+    onSaveDisplayName: (String) -> Unit = {}
 ) {
     val clipboard = LocalClipboardManager.current
+
+    var editedName by remember {
+        mutableStateOf(displayName)
+    }
+
+    LaunchedEffect(displayName) {
+        editedName = displayName
+    }
 
     CompositionLocalProvider(
         LocalLayoutDirection provides LayoutDirection.Rtl
@@ -81,18 +99,52 @@ fun SettingsScreen(
                     fontSize = 13.sp
                 )
 
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(10.dp))
 
-                Text(
-                    text = displayName.ifBlank {
-                        "مستخدم وصال"
+                OutlinedTextField(
+                    value = editedName,
+                    onValueChange = {
+                        if (it.length <= 40) {
+                            editedName = it
+                        }
                     },
-                    color = SetText,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isBusy,
+                    singleLine = true,
+                    label = {
+                        Text("اسم العرض", color = SetMuted)
+                    },
+                    placeholder = {
+                        Text("اكتب اسمك", color = SetMuted)
+                    }
                 )
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(10.dp))
+
+                Button(
+                    onClick = {
+                        onSaveDisplayName(editedName.trim())
+                    },
+                    enabled = !isBusy &&
+                        editedName.trim().isNotBlank() &&
+                        editedName.trim() != displayName.trim(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SetAccent,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = if (isBusy) {
+                            "جارٍ الحفظ..."
+                        } else {
+                            "حفظ اسم العرض"
+                        }
+                    )
+                }
+
+                Spacer(Modifier.height(20.dp))
 
                 Text(
                     text = "رمز وصال الخاص بك",
@@ -125,8 +177,7 @@ fun SettingsScreen(
                             }
                         ) {
                             Icon(
-                                imageVector =
-                                    Icons.Default.ContentCopy,
+                                imageVector = Icons.Default.ContentCopy,
                                 contentDescription = "نسخ رمز وصال",
                                 tint = SetAccent
                             )
