@@ -1,3 +1,4 @@
+
 package com.wasal.app.data.local
 
 import android.content.Context
@@ -12,6 +13,10 @@ private val Context.authDataStore by preferencesDataStore(
 )
 
 class AuthDataStore(private val context: Context) {
+
+    // يتيح للمستودعات استخدام سياق التطبيق للتخزين المحلي.
+    internal val appContext: Context
+        get() = context.applicationContext
 
     private val tokenKey =
         stringPreferencesKey("access_token")
@@ -32,6 +37,11 @@ class AuthDataStore(private val context: Context) {
             preferences[userIdKey]
         }
 
+    val refreshToken: Flow<String?> =
+        context.authDataStore.data.map { preferences ->
+            preferences[refreshTokenKey]
+        }
+
     suspend fun saveSession(
         accessToken: String,
         refreshToken: String,
@@ -43,11 +53,6 @@ class AuthDataStore(private val context: Context) {
             preferences[userIdKey] = userId
         }
     }
-
-    val refreshToken: Flow<String?> =
-        context.authDataStore.data.map { preferences ->
-            preferences[refreshTokenKey]
-        }
 
     suspend fun clear() {
         context.authDataStore.edit { preferences ->
