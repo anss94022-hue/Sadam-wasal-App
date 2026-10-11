@@ -50,9 +50,7 @@ class ProfileRepository {
                 val user = JSONObject(body)
                     .optJSONObject("user")
                     ?: return Result.failure(
-                        IOException(
-                            "لم يرجع الخادم بيانات الحساب."
-                        )
+                        IOException("لم يرجع الخادم بيانات الحساب.")
                     )
 
                 val id = user.optString("id")
@@ -61,28 +59,121 @@ class ProfileRepository {
 
                 if (
                     id.isBlank() ||
-                    !wasalCode.matches(
-                        Regex("^[A-Za-z0-9]{15}$")
-                    )
+                    !wasalCode.matches(Regex("^[A-Za-z0-9]{15}$"))
                 ) {
                     return Result.failure(
-                        IOException(
-                            "بيانات الحساب أو رمز وصال غير مكتملة."
-                        )
+                        IOException("بيانات الحساب أو رمز وصال غير مكتملة.")
                     )
                 }
 
                 Result.success(
                     ProfileUser(
                         id = id,
-                        displayName = displayName
-                            .ifBlank { "مستخدم وصال" },
+                        displayName = displayName.ifBlank {
+                            "مستخدم وصال"
+                        },
                         wasalCode = wasalCode
                     )
                 )
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * حفظ اسم العرض للحساب الحالي على الخادم.
+     * يجب استدعاء الدالة من Dispatchers.IO.
+     */
+    fun updateDisplayName(
+        displayName: String,
+        accessToken: String
+    ): Result<ProfileUser> {
+
+        val cleanName = displayName.trim()
+
+        if (accessToken.isBlank()) {
+            return Result.failure(
+                IOException("انتهت جلسة وصال. سجّل الدخول مجددًا.")
+            )
+        }
+
+        if (cleanName.isBlank()) {
+            return Result.failure(
+                IOException("اكتب اسم العرض أولًا.")
+            )
+        }
+
+        if (cleanName.length > 40) {
+            return Result.failure(
+                IOException("اسم العرض يجب ألا يتجاوز 40 حرفًا.")
+            )
+        }
+
+        return try {
+            val path =
+                ServerConfig.USERS_ENDPOINT + "/me/display-name"
+
+            val requestBody = JSONObject()
+                .put("displayName", cleanName)
+                .toString()
+
+            CoreApiClient.execute(
+                CoreApiClient.put(
+                    path,
+                    requestBody,
+                    accessToken
+                )
+            ).use { response ->
+
+                val body = response.body?.string().orEmpty()
+
+                if (!response.isSuccessful) {
+                    val message = when (response.code) {
+                        400 -> "اسم العرض غير صالح."
+                        401 -> "انتهت جلسة وصال. سجّل الدخول مجددًا."
+                        404 -> "لم يتم العثور على الحساب."
+                        else -> "تعذر حفظ الاسم. رمز الاستجابة: ${response.code}"
+                    }
+
+                    return Result.failure(IOException(message))
+                }
+
+                val root = JSONObject(body)
+                val user = root.optJSONObject("user")
+                    ?: return Result.failure(
+                        IOException("لم يرجع الخادم بيانات الاسم المحفوظ.")
+                    )
+
+                val id = user.optString("id")
+                val savedName = user.optString("displayName")
+                val wasalCode = user.optString("wasalCode")
+
+                if (
+                    id.isBlank() ||
+                    savedName.isBlank() ||
+                    !wasalCode.matches(Regex("^[A-Za-z0-9]{15}$"))
+                ) {
+                    return Result.failure(
+                        IOException("بيانات الحساب المحفوظة غير مكتملة.")
+                    )
+                }
+
+                Result.success(
+                    ProfileUser(
+                        id = id,
+                        displayName = savedName,
+                        wasalCode = wasalCode
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(
+                IOException(
+                    e.message ?: "حدث خطأ أثناء حفظ اسم العرض.",
+                    e
+                )
+            )
         }
     }
 }
