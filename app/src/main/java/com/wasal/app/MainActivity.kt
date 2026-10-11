@@ -606,9 +606,11 @@ private fun ConversationFlow(
                 .first()
                 .orEmpty()
 
-            if (token.isBlank() || userId.isBlank()) {
+            // يسمح بمحاولة قراءة الرسائل المخزنة محلياً
+            // حتى لو لم يتوفر رمز الدخول.
+            if (userId.isBlank()) {
                 throw IllegalStateException(
-                    "جلسة وصال غير مكتملة."
+                    "معرّف المستخدم غير موجود."
                 )
             }
 
