@@ -104,6 +104,9 @@ private fun WasalHomeScreen(context: Context) {
 
     var isLoading by remember { mutableStateOf(true) }
     var isAddingContact by remember { mutableStateOf(false) }
+    var isSavingDisplayName by remember {
+        mutableStateOf(false)
+    }
 
     var conversations by remember {
         mutableStateOf<List<Conversation>>(emptyList())
@@ -170,11 +173,6 @@ private fun WasalHomeScreen(context: Context) {
             var token = authDataStore.accessToken.first().orEmpty()
             var userId = authDataStore.userId.first().orEmpty()
 
-            /*
-             * لا تنشئ حساباً جديداً إذا كان هناك مستخدم محفوظ
-             * محلياً ولكن رمز الدخول غير متوفر.
-             * في هذه الحالة نحاول عرض المحادثات المخزنة.
-             */
             if (token.isBlank() && userId.isBlank()) {
                 val result = withContext(Dispatchers.IO) {
                     authRepository.createAccount()
@@ -197,16 +195,8 @@ private fun WasalHomeScreen(context: Context) {
                 )
             }
 
-            /*
-             * ChatRepository مسؤول عن إرجاع النسخة المحفوظة
-             * عندما لا يتوفر الإنترنت أو رمز الدخول.
-             */
             refreshConversations(token)
 
-            /*
-             * لا نحاول جلب الملف الشخصي من الخادم دون رمز دخول.
-             * نحتفظ بالقيم الافتراضية إلى أن تتوفر جلسة صالحة.
-             */
             if (token.isNotBlank()) {
                 val profileResult = withContext(Dispatchers.IO) {
                     profileRepository.getMyProfile(
@@ -499,8 +489,52 @@ private fun WasalHomeScreen(context: Context) {
                         } else {
                             errorMessage
                         },
-                        isBusy = isLoading,
-                        onLogout = {}
+                        isBusy = isLoading || isSavingDisplayName,
+                        onLogout = {},
+                        onSaveDisplayName = { newName ->
+                            scope.launch {
+                                if (isSavingDisplayName) {
+                                    return@launch
+                                }
+
+                                isSavingDisplayName = true
+                                errorMessage = null
+
+                                try {
+                                    val token = authDataStore
+                                        .accessToken
+                                        .first()
+                                        .orEmpty()
+
+                                    if (token.isBlank()) {
+                                        throw IllegalStateException(
+                                            "لا توجد جلسة دخول صالحة. تحقق من اتصالك بالإنترنت."
+                                        )
+                                    }
+
+                                    val result = withContext(Dispatchers.IO) {
+                                        profileRepository.updateDisplayName(
+                                            displayName = newName,
+                                            accessToken = token
+                                        )
+                                    }
+
+                                    val savedProfile = result.getOrElse {
+                                        throw it
+                                    }
+
+                                    displayName = savedProfile.displayName
+                                    wasalCode = savedProfile.wasalCode
+                                    errorMessage =
+                                        "تم حفظ اسم العرض بنجاح."
+                                } catch (e: Exception) {
+                                    errorMessage = e.message
+                                        ?: "تعذر حفظ اسم العرض."
+                                } finally {
+                                    isSavingDisplayName = false
+                                }
+                            }
+                        }
                     )
                 }
             }
