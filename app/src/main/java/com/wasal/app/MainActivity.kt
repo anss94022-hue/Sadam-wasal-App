@@ -172,6 +172,11 @@ private fun WasalHomeScreen(context: Context) {
             var token = authDataStore.accessToken.first().orEmpty()
             var userId = authDataStore.userId.first().orEmpty()
 
+            /*
+             * إنشاء حساب جديد فقط عندما لا توجد جلسة محفوظة.
+             * نحتفظ برمز وصال الذي يرجع من عملية إنشاء الحساب
+             * حتى لو فشل تحميل الملف الشخصي لاحقاً.
+             */
             if (token.isBlank() && userId.isBlank()) {
                 val result = withContext(Dispatchers.IO) {
                     authRepository.createAccount()
@@ -184,6 +189,7 @@ private fun WasalHomeScreen(context: Context) {
                 // عرض رمز وصال مباشرة بعد إنشاء الحساب بنجاح.
                 wasalCode = createdWasalCode
 
+                // إعادة قراءة بيانات الجلسة التي حفظها المستودع.
                 token = authDataStore.accessToken.first().orEmpty()
                 userId = authDataStore.userId.first().orEmpty()
             }
@@ -194,8 +200,13 @@ private fun WasalHomeScreen(context: Context) {
                 )
             }
 
+            // تحميل المحادثات.
             refreshConversations(token)
 
+            /*
+             * تحديث الملف الشخصي عند توفر رمز الدخول.
+             * لا نمسح رمز وصال السابق إذا فشل هذا الطلب.
+             */
             if (token.isNotBlank()) {
                 val profileResult = withContext(Dispatchers.IO) {
                     profileRepository.getMyProfile(
@@ -206,7 +217,10 @@ private fun WasalHomeScreen(context: Context) {
 
                 profileResult.onSuccess { profile ->
                     displayName = profile.displayName
-                    wasalCode = profile.wasalCode
+
+                    if (profile.wasalCode.isNotBlank()) {
+                        wasalCode = profile.wasalCode
+                    }
                 }.onFailure { error ->
                     errorMessage = error.message
                         ?: "تعذر تحديث بيانات الحساب."
@@ -523,7 +537,11 @@ private fun WasalHomeScreen(context: Context) {
                                     }
 
                                     displayName = savedProfile.displayName
-                                    wasalCode = savedProfile.wasalCode
+
+                                    if (savedProfile.wasalCode.isNotBlank()) {
+                                        wasalCode = savedProfile.wasalCode
+                                    }
+
                                     errorMessage =
                                         "تم حفظ اسم العرض بنجاح."
                                 } catch (e: Exception) {
