@@ -10,16 +10,9 @@ class AuthRepository(
     private val authDataStore: AuthDataStore
 ) {
 
-    /**
-     * إنشاء حساب جديد في وصال.
-     *
-     * يجب استدعاء الدالة من coroutine،
-     * لأنها تحفظ الجلسة باستخدام DataStore.
-     */
     suspend fun createAccount(
         displayName: String = "مستخدم وصال"
     ): Result<String> {
-
         val cleanName = displayName.trim()
             .ifBlank { "مستخدم وصال" }
 
@@ -50,8 +43,17 @@ class AuthRepository(
                         "DISPLAY_NAME_REQUIRED" ->
                             "يرجى إدخال اسم العرض."
 
+                        "DISPLAY_NAME_TOO_LONG" ->
+                            "اسم العرض أطول من الحد المسموح."
+
                         "WASAL_CODE_GENERATION_FAILED" ->
                             "تعذر إنشاء رمز وصال. حاول مرة أخرى."
+
+                        "ACCOUNT_CONFLICT" ->
+                            "حدث تعارض أثناء إنشاء الحساب. حاول مرة أخرى."
+
+                        "ACCOUNT_CREATION_FAILED" ->
+                            "فشل إنشاء الحساب في الخادم. راجع سجلات الخادم لمعرفة السبب."
 
                         else ->
                             "تعذر إنشاء الحساب. رمز الاستجابة: ${response.code}"
@@ -61,6 +63,7 @@ class AuthRepository(
                 }
 
                 val root = JSONObject(body)
+
                 val user = root.optJSONObject("user")
                     ?: return Result.failure(
                         IOException("لم يرجع الخادم بيانات المستخدم.")
@@ -79,11 +82,18 @@ class AuthRepository(
                 if (
                     accessToken.isBlank() ||
                     refreshToken.isBlank() ||
-                    userId.isBlank() ||
-                    wasalCode.isBlank()
+                    userId.isBlank()
                 ) {
                     return Result.failure(
                         IOException("بيانات الحساب أو الجلسة غير مكتملة.")
+                    )
+                }
+
+                if (!wasalCode.matches(Regex("^[A-Za-z0-9]{15}$"))) {
+                    return Result.failure(
+                        IOException(
+                            "الخادم أعاد رمز وصال غير صالح؛ يجب أن يتكون من 15 حرفًا أو رقمًا."
+                        )
                     )
                 }
             }
