@@ -255,7 +255,7 @@ class MessageRepository(
         val type = when {
             media.mimeType.startsWith("image/") -> "image"
             media.mimeType.startsWith("video/") -> "video"
-            media.mimeType.startsWith("audio/") -> "audio"
+            media.mimeType.startsWith("audio/") -> "voice"
             else -> "file"
         }
 
