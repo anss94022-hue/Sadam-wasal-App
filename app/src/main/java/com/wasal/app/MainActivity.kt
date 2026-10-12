@@ -1,4 +1,3 @@
-
 package com.wasal.app
 
 import android.content.Context
@@ -178,12 +177,12 @@ private fun WasalHomeScreen(context: Context) {
                     authRepository.createAccount()
                 }
 
-                if (result.isFailure) {
-                    throw result.exceptionOrNull()
-                        ?: IllegalStateException(
-                            "تعذر إنشاء حساب وصال."
-                        )
+                val createdWasalCode = result.getOrElse {
+                    throw it
                 }
+
+                // عرض رمز وصال مباشرة بعد إنشاء الحساب بنجاح.
+                wasalCode = createdWasalCode
 
                 token = authDataStore.accessToken.first().orEmpty()
                 userId = authDataStore.userId.first().orEmpty()
@@ -636,172 +635,3 @@ private fun ConversationFlow(
 
     LaunchedEffect(conversation.id) {
         isLoading = true
-        statusMessage = null
-
-        try {
-            val token = authDataStore.accessToken
-                .first()
-                .orEmpty()
-
-            val userId = authDataStore.userId
-                .first()
-                .orEmpty()
-
-            if (userId.isBlank()) {
-                throw IllegalStateException(
-                    "معرّف المستخدم غير موجود."
-                )
-            }
-
-            val result = withContext(Dispatchers.IO) {
-                messageRepository.getMessages(
-                    conversationId = conversation.id,
-                    accessToken = token,
-                    currentUserId = userId
-                )
-            }
-
-            messages = result.getOrElse {
-                throw it
-            }
-        } catch (e: Exception) {
-            statusMessage = e.message
-                ?: "تعذر تحميل الرسائل."
-        } finally {
-            isLoading = false
-        }
-    }
-
-    ConversationScreen(
-        title = conversation.title,
-        messages = messages,
-        onBack = onBack,
-        isLoading = isLoading,
-        isSending = isSending,
-        statusMessage = statusMessage,
-        onAttachmentClick = {
-            if (!isSending) {
-                picker.launch(
-                    arrayOf(
-                        "image/*",
-                        "video/*",
-                        "audio/*",
-                        "application/pdf",
-                        "application/octet-stream"
-                    )
-                )
-            }
-        },
-        onSendMessage = { text ->
-            scope.launch {
-                isSending = true
-                statusMessage = null
-
-                try {
-                    val token = authDataStore.accessToken
-                        .first()
-                        .orEmpty()
-
-                    val userId = authDataStore.userId
-                        .first()
-                        .orEmpty()
-
-                    if (token.isBlank() || userId.isBlank()) {
-                        throw IllegalStateException(
-                            "يلزم الاتصال بالإنترنت وتوفر جلسة دخول لإرسال الرسائل."
-                        )
-                    }
-
-                    val result = withContext(Dispatchers.IO) {
-                        messageRepository.sendTextMessage(
-                            conversationId = conversation.id,
-                            content = text,
-                            accessToken = token,
-                            currentUserId = userId
-                        )
-                    }
-
-                    val message = result.getOrElse {
-                        throw it
-                    }
-
-                    messages = messages + message
-                } catch (e: Exception) {
-                    statusMessage = e.message
-                        ?: "تعذر إرسال الرسالة."
-                } finally {
-                    isSending = false
-                }
-            }
-        }
-    )
-}
-
-@Composable
-private fun StatusSection(
-    title: String,
-    message: String
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Surface(
-            modifier = Modifier.size(92.dp),
-            shape = CircleShape,
-            color = WasalCard
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Chat,
-                    contentDescription = null,
-                    tint = WasalAccent,
-                    modifier = Modifier.size(42.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(22.dp))
-
-        Text(
-            text = title,
-            color = WasalText,
-            fontSize = 21.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Text(
-            text = message,
-            color = WasalMuted,
-            fontSize = 14.sp
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    WasalCard,
-                    RoundedCornerShape(16.dp)
-                )
-                .padding(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "وصال — تواصل أقرب",
-                color = WasalAccent,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
