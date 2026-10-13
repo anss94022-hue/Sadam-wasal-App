@@ -1,3 +1,4 @@
+
 package com.wasal.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
@@ -50,7 +52,8 @@ private val MutedText = Color(0xFF9AA7C7)
 fun ChatsScreen(
     conversations: List<Conversation> = emptyList(),
     onConversationClick: (Conversation) -> Unit = {},
-    onSearchClick: () -> Unit = {}
+    onSearchClick: () -> Unit = {},
+    onNewConversation: () -> Unit = {}
 ) {
     var searchText by remember { mutableStateOf("") }
 
@@ -105,12 +108,17 @@ fun ChatsScreen(
                 )
 
                 IconButton(
-                    onClick = onSearchClick
+                    onClick = onNewConversation,
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(48.dp)
+                        .background(Accent, CircleShape)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "فتح البحث",
-                        tint = MainText
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "محادثة جديدة",
+                        tint = Color.White,
+                        modifier = Modifier.size(29.dp)
                     )
                 }
             }
@@ -127,10 +135,7 @@ fun ChatsScreen(
                         Box(
                             modifier = Modifier
                                 .size(84.dp)
-                                .background(
-                                    CardColor,
-                                    CircleShape
-                                ),
+                                .background(CardColor, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -157,7 +162,11 @@ fun ChatsScreen(
                         Spacer(modifier = Modifier.size(8.dp))
 
                         Text(
-                            text = "ستظهر محادثاتك هنا",
+                            text = if (searchText.isBlank()) {
+                                "اضغط على ＋ لبدء محادثة جديدة"
+                            } else {
+                                "جرّب كلمة بحث أخرى"
+                            },
                             color = MutedText,
                             fontSize = 14.sp
                         )
@@ -261,10 +270,7 @@ private fun ConversationRow(
 
                 Box(
                     modifier = Modifier
-                        .background(
-                            Accent,
-                            CircleShape
-                        )
+                        .background(Accent, CircleShape)
                         .padding(
                             horizontal = 7.dp,
                             vertical = 3.dp
