@@ -9,16 +9,23 @@ import java.io.IOException
 
 class ContactsRepository {
 
+    companion object {
+        // 15 خانة بالضبط، ويجب أن يحتوي الرمز على
+        // حرف إنجليزي واحد على الأقل ورقم واحد على الأقل.
+        private val WASAL_CODE_REGEX =
+            Regex("^(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{15}$")
+    }
+
     fun findUserByWasalCode(
         wasalCode: String,
         accessToken: String
     ): Result<Contact> {
         val code = wasalCode.trim()
 
-        if (!code.matches(Regex("^[A-Za-z0-9]{15}$"))) {
+        if (!WASAL_CODE_REGEX.matches(code)) {
             return Result.failure(
                 IllegalArgumentException(
-                    "رمز وصال يجب أن يتكون من 15 حرفًا أو رقمًا."
+                    "رمز وصال يجب أن يتكون من 15 خانة مخلوطة من الحروف الإنجليزية والأرقام."
                 )
             )
         }
@@ -26,7 +33,7 @@ class ContactsRepository {
         return try {
             val path =
                 "${ServerConfig.USERS_ENDPOINT}/search/wasal-code" +
-                "?wasalCode=$code"
+                    "?wasalCode=$code"
 
             CoreApiClient.execute(
                 CoreApiClient.get(path, accessToken)
@@ -43,8 +50,10 @@ class ContactsRepository {
                             when (error) {
                                 "USER_NOT_FOUND" ->
                                     "لم يتم العثور على مستخدم بهذا الرمز."
+
                                 "INVALID_WASAL_CODE" ->
                                     "رمز وصال غير صالح."
+
                                 else ->
                                     "تعذر البحث عن المستخدم. رمز الاستجابة: ${response.code}"
                             }
@@ -59,14 +68,21 @@ class ContactsRepository {
                     )
 
                 val id = user.optString("id")
-                val name = user.optString(
-                    "displayName",
-                    "مستخدم وصال"
-                )
-                val returnedCode = user.optString(
-                    "wasalCode",
-                    code
-                )
+                val name = user.optString("displayName")
+                    .ifBlank {
+                        user.optString("name")
+                    }
+                    .ifBlank {
+                        "مستخدم وصال"
+                    }
+
+                val returnedCode = sequenceOf(
+                    user.optString("code"),
+                    user.optString("wasalCode"),
+                    user.optString("wasal_code"),
+                    user.optString("pin_code"),
+                    user.optString("pinCode")
+                ).firstOrNull { it.isNotBlank() } ?: code
 
                 if (id.isBlank()) {
                     return Result.failure(
@@ -74,16 +90,27 @@ class ContactsRepository {
                     )
                 }
 
+                if (!WASAL_CODE_REGEX.matches(returnedCode)) {
+                    return Result.failure(
+                        IOException("الخادم أعاد رمز وصال غير صالح.")
+                    )
+                }
+
                 Result.success(
                     Contact(
                         id = id,
-                        name = name.ifBlank { "مستخدم وصال" },
+                        name = name,
                         wasalCode = returnedCode
                     )
                 )
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(
+                IOException(
+                    e.message ?: "تعذر الاتصال بخادم وصال.",
+                    e
+                )
+            )
         }
     }
 
@@ -93,9 +120,11 @@ class ContactsRepository {
     ): Result<String> {
         val code = wasalCode.trim()
 
-        if (!code.matches(Regex("^[A-Za-z0-9]{15}$"))) {
+        if (!WASAL_CODE_REGEX.matches(code)) {
             return Result.failure(
-                IllegalArgumentException("رمز وصال غير صالح.")
+                IllegalArgumentException(
+                    "رمز وصال يجب أن يتكون من 15 خانة مخلوطة من الحروف الإنجليزية والأرقام."
+                )
             )
         }
 
@@ -123,10 +152,13 @@ class ContactsRepository {
                             when (error) {
                                 "USER_NOT_FOUND" ->
                                     "لم يتم العثور على مستخدم بهذا الرمز."
+
                                 "CANNOT_CHAT_WITH_SELF" ->
                                     "لا يمكنك إنشاء محادثة مع نفسك."
+
                                 "INVALID_WASAL_CODE" ->
                                     "رمز وصال غير صالح."
+
                                 else ->
                                     "تعذرت إضافة جهة الاتصال. رمز الاستجابة: ${response.code}"
                             }
@@ -151,7 +183,12 @@ class ContactsRepository {
                 Result.success(conversationId)
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(
+                IOException(
+                    e.message ?: "تعذر الاتصال بخادم وصال.",
+                    e
+                )
+            )
         }
     }
 }
