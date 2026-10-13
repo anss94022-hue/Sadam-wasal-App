@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,13 +42,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.request.ImageRequest
+import coil.compose.SubcomposeAsyncImage
 import com.wasal.app.data.model.Message
+import com.wasal.app.data.model.MessageStatus
 
 private val ChatBackground = Color(0xFF0B1020)
 private val ChatHeader = Color(0xFF101B3A)
@@ -56,6 +63,8 @@ private val ChatBubbleOther = Color(0xFF172342)
 private val ChatAccent = Color(0xFF6C8CFF)
 private val ChatText = Color(0xFFF4F6FF)
 private val ChatMuted = Color(0xFF9AA7C7)
+private val ReadStatusColor = Color(0xFF55D6FF)
+private val FailedStatusColor = Color(0xFFFF6B6B)
 
 @Composable
 fun ConversationScreen(
@@ -67,10 +76,10 @@ fun ConversationScreen(
     onMoreClick: () -> Unit = {},
     isLoading: Boolean = false,
     isSending: Boolean = false,
-    statusMessage: String? = null
+    statusMessage: String? = null,
+    mediaAccessToken: String = ""
 ) {
     var draft by remember { mutableStateOf("") }
-
     val listState = rememberLazyListState()
 
     BackHandler {
@@ -112,11 +121,9 @@ fun ConversationScreen(
                     shape = CircleShape,
                     color = ChatBubbleOther
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Text(
-                            title.trim().take(1).ifBlank { "و" },
+                            text = title.trim().take(1).ifBlank { "و" },
                             color = ChatAccent,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
@@ -126,9 +133,7 @@ fun ConversationScreen(
 
                 Spacer(Modifier.width(10.dp))
 
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
                         color = ChatText,
@@ -160,10 +165,7 @@ fun ConversationScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(ChatHeader)
-                        .padding(
-                            horizontal = 14.dp,
-                            vertical = 8.dp
-                        )
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                 )
             }
 
@@ -176,12 +178,9 @@ fun ConversationScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
-                            horizontalAlignment =
-                                Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            CircularProgressIndicator(
-                                color = ChatAccent
-                            )
+                            CircularProgressIndicator(color = ChatAccent)
 
                             Spacer(Modifier.size(12.dp))
 
@@ -201,8 +200,7 @@ fun ConversationScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
-                            horizontalAlignment =
-                                Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
                                 text = "ابدأ محادثتك",
@@ -230,14 +228,16 @@ fun ConversationScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp),
                         reverseLayout = false,
-                        verticalArrangement =
-                            Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(
                             items = messages,
                             key = { it.id }
                         ) { message ->
-                            MessageBubble(message)
+                            MessageBubble(
+                                message = message,
+                                mediaAccessToken = mediaAccessToken
+                            )
                         }
                     }
                 }
@@ -247,10 +247,7 @@ fun ConversationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(ChatHeader)
-                    .padding(
-                        horizontal = 10.dp,
-                        vertical = 8.dp
-                    ),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
@@ -259,8 +256,7 @@ fun ConversationScreen(
                 ) {
                     Icon(
                         Icons.Default.AttachFile,
-                        contentDescription =
-                            "إرفاق صورة أو فيديو أو ملف",
+                        contentDescription = "إرفاق صورة أو فيديو أو ملف",
                         tint = ChatAccent
                     )
                 }
@@ -274,19 +270,15 @@ fun ConversationScreen(
                             ChatBubbleOther,
                             RoundedCornerShape(22.dp)
                         )
-                        .padding(
-                            horizontal = 16.dp,
-                            vertical = 13.dp
-                        ),
+                        .padding(horizontal = 16.dp, vertical = 13.dp),
                     enabled = !isSending,
                     textStyle = androidx.compose.ui.text.TextStyle(
                         color = ChatText,
                         fontSize = 15.sp
                     ),
-                    cursorBrush =
-                        androidx.compose.ui.graphics.SolidColor(
-                            ChatAccent
-                        ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                        ChatAccent
+                    ),
                     decorationBox = { innerTextField ->
                         Box {
                             if (draft.isEmpty()) {
@@ -339,7 +331,10 @@ fun ConversationScreen(
 }
 
 @Composable
-private fun MessageBubble(message: Message) {
+private fun MessageBubble(
+    message: Message,
+    mediaAccessToken: String
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.isMine) {
@@ -352,60 +347,30 @@ private fun MessageBubble(message: Message) {
             modifier = Modifier
                 .fillMaxWidth(0.85f)
                 .background(
-                    if (message.isMine) {
+                    color = if (message.isMine) {
                         ChatBubbleMine
                     } else {
                         ChatBubbleOther
                     },
-                    RoundedCornerShape(
+                    shape = RoundedCornerShape(
                         topStart = 16.dp,
                         topEnd = 16.dp,
-                        bottomStart = if (message.isMine) {
-                            4.dp
-                        } else {
-                            16.dp
-                        },
-                        bottomEnd = if (message.isMine) {
-                            16.dp
-                        } else {
-                            4.dp
-                        }
+                        bottomStart = if (message.isMine) 4.dp else 16.dp,
+                        bottomEnd = if (message.isMine) 16.dp else 4.dp
                     )
                 )
-                .padding(
-                    horizontal = 13.dp,
-                    vertical = 9.dp
-                )
+                .padding(horizontal = 13.dp, vertical = 9.dp)
         ) {
             when (message.type.lowercase()) {
                 "image" -> {
-                    Row(
-                        verticalAlignment =
-                            Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Image,
-                            contentDescription = null,
-                            tint = ChatAccent
-                        )
-
-                        Spacer(Modifier.width(6.dp))
-
-                        Text(
-                            text = "صورة مرفقة",
-                            color = ChatText,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    AttachmentLink(message.content)
+                    MessageImage(
+                        imageUrl = message.content,
+                        accessToken = mediaAccessToken
+                    )
                 }
 
                 "video" -> {
-                    Row(
-                        verticalAlignment =
-                            Alignment.CenterVertically
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.PlayCircle,
                             contentDescription = null,
@@ -424,7 +389,7 @@ private fun MessageBubble(message: Message) {
                     AttachmentLink(message.content)
                 }
 
-                "audio" -> {
+                "audio", "voice" -> {
                     Text(
                         text = "ملف صوتي مرفق",
                         color = ChatText
@@ -434,10 +399,7 @@ private fun MessageBubble(message: Message) {
                 }
 
                 "file" -> {
-                    Row(
-                        verticalAlignment =
-                            Alignment.CenterVertically
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.Description,
                             contentDescription = null,
@@ -464,18 +426,133 @@ private fun MessageBubble(message: Message) {
                 }
             }
 
-            if (message.time.isNotBlank()) {
-                Spacer(Modifier.size(4.dp))
+            Spacer(Modifier.size(4.dp))
 
-                Text(
-                    text = message.time,
-                    color = ChatMuted,
-                    fontSize = 10.sp,
-                    modifier = Modifier.align(Alignment.End)
-                )
+            Row(
+                modifier = Modifier.align(Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                if (message.time.isNotBlank()) {
+                    Text(
+                        text = message.time,
+                        color = ChatMuted,
+                        fontSize = 10.sp
+                    )
+                }
+
+                if (message.isMine) {
+                    MessageStatusIndicator(message.status)
+                }
             }
         }
     }
+}
+
+@Composable
+private fun MessageImage(
+    imageUrl: String,
+    accessToken: String
+) {
+    val context = LocalContext.current
+
+    if (imageUrl.isBlank()) {
+        ImageLoadError()
+        return
+    }
+
+    val imageRequest = remember(imageUrl, accessToken) {
+        ImageRequest.Builder(context)
+            .data(imageUrl)
+            .crossfade(true)
+            .apply {
+                if (accessToken.isNotBlank()) {
+                    addHeader(
+                        "Authorization",
+                        "Bearer $accessToken"
+                    )
+                }
+            }
+            .build()
+    }
+
+    SubcomposeAsyncImage(
+        model = imageRequest,
+        contentDescription = "صورة مرسلة",
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 320.dp)
+            .clip(RoundedCornerShape(12.dp)),
+        loading = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 120.dp, max = 220.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    color = ChatAccent,
+                    strokeWidth = 2.dp
+                )
+            }
+        },
+        error = {
+            ImageLoadError()
+        }
+    )
+}
+
+@Composable
+private fun ImageLoadError() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 90.dp)
+            .background(
+                ChatBubbleOther,
+                RoundedCornerShape(12.dp)
+            )
+            .padding(12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.Image,
+                contentDescription = null,
+                tint = ChatMuted,
+                modifier = Modifier.size(30.dp)
+            )
+
+            Spacer(Modifier.size(6.dp))
+
+            Text(
+                text = "تعذر تحميل الصورة",
+                color = ChatMuted,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun MessageStatusIndicator(status: MessageStatus) {
+    val (symbol, color, description) = when (status) {
+        MessageStatus.SENDING -> Triple("◷", ChatMuted, "جارٍ الإرسال")
+        MessageStatus.SENT -> Triple("✓", ChatMuted, "تم الإرسال")
+        MessageStatus.DELIVERED -> Triple("✓✓", ChatMuted, "تم التسليم")
+        MessageStatus.READ -> Triple("✓✓", ReadStatusColor, "تمت القراءة")
+        MessageStatus.FAILED -> Triple("!", FailedStatusColor, "فشل الإرسال")
+    }
+
+    Text(
+        text = symbol,
+        color = color,
+        fontSize = if (status == MessageStatus.DELIVERED ||
+            status == MessageStatus.READ
+        ) 11.sp else 12.sp,
+        fontWeight = FontWeight.Bold
+    )
 }
 
 @Composable
