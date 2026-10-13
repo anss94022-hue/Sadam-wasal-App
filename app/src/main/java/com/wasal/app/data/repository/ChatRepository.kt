@@ -1,13 +1,16 @@
 
 package com.wasal.app.data.repository
 
+import android.content.Context
 import com.wasal.app.data.local.AuthDataStore
 import com.wasal.app.data.model.Conversation
 import com.wasal.app.data.network.CoreApiClient
 import com.wasal.app.data.network.ServerConfig
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.IOException
 
 class ChatRepository(
@@ -18,7 +21,7 @@ class ChatRepository(
     private val preferences by lazy {
         authDataStore.appContext.getSharedPreferences(
             "wasal_conversation_cache",
-            android.content.Context.MODE_PRIVATE
+            Context.MODE_PRIVATE
         )
     }
 
@@ -46,15 +49,20 @@ class ChatRepository(
         }
 
         if (!response.isSuccessful) {
-            val error = runCatching {
-                JSONObject(response.body).optString("error")
+            val serverError = runCatching {
+                val parsed = JSONTokener(response.body).nextValue()
+                if (parsed is JSONObject) {
+                    parsed.optString("error")
+                } else {
+                    ""
+                }
             }.getOrDefault("")
 
             val exception = IOException(
                 when (response.code) {
                     401 -> "انتهت جلسة الدخول. تعذر تجديدها."
                     403 -> "ليست لديك صلاحية جلب المحادثات."
-                    else -> error.ifBlank {
+                    else -> serverError.ifBlank {
                         "تعذر تحميل المحادثات. رمز الاستجابة: ${response.code}"
                     }
                 }
@@ -64,14 +72,39 @@ class ChatRepository(
         }
 
         return try {
-            val root = JSONObject(response.body)
-            val conversationsArray =
-                root.optJSONArray("conversations")
-                    ?: root.optJSONObject("data")
-                        ?.optJSONArray("conversations")
-                    ?: throw IOException(
-                        "لم يرجع الخادم قائمة المحادثات."
+            val body = response.body.trim()
+
+            if (body.isBlank()) {
+                throw IOException("استجابة الخادم فارغة.")
+            }
+
+            val parsed = JSONTokener(body).nextValue()
+
+            val conversationsArray: JSONArray = when (parsed) {
+                is JSONArray -> {
+                    // يقبل استجابة الخادم المباشرة: []
+                    parsed
+                }
+
+                is JSONObject -> {
+                    // يقبل { "conversations": [...] }
+                    // ويقبل { "data": { "conversations": [...] } }
+                    // ويقبل { "data": [...] }
+                    parsed.optJSONArray("conversations")
+                        ?: parsed.optJSONObject("data")
+                            ?.optJSONArray("conversations")
+                        ?: parsed.optJSONArray("data")
+                        ?: throw IOException(
+                            "لم يرجع الخادم قائمة المحادثات."
+                        )
+                }
+
+                else -> {
+                    throw IOException(
+                        "صيغة استجابة المحادثات غير معروفة."
                     )
+                }
+            }
 
             val conversations = mutableListOf<Conversation>()
 
@@ -82,22 +115,40 @@ class ChatRepository(
                 val id = item.optString("id").trim()
                 if (id.isBlank()) continue
 
-                val title = item.optString(
-                    "title",
-                    item.optString("name", "محادثة وصال")
-                ).ifBlank { "محادثة وصال" }
+                val title = item.optString("title")
+                    .ifBlank {
+                        item.optString("name")
+                    }
+                    .ifBlank {
+                        item.optJSONObject("user")
+                            ?.optString("displayName")
+                            .orEmpty()
+                    }
+                    .ifBlank {
+                        "محادثة وصال"
+                    }
 
-                val lastMessage = if (item.isNull("lastMessage")) {
-                    ""
-                } else {
-                    item.optString("lastMessage", "")
+                val lastMessage = when {
+                    !item.isNull("lastMessage") ->
+                        item.optString("lastMessage", "")
+
+                    item.optJSONObject("lastMessage")
+                        ?.optString("content")
+                        ?.isNotBlank() == true ->
+                        item.optJSONObject("lastMessage")
+                            ?.optString("content")
+                            .orEmpty()
+
+                    else -> ""
                 }
 
                 val time = when {
                     !item.isNull("lastMessageAt") ->
                         item.optString("lastMessageAt", "")
+
                     !item.isNull("updatedAt") ->
                         item.optString("updatedAt", "")
+
                     else -> ""
                 }
 
@@ -112,7 +163,9 @@ class ChatRepository(
                 )
             }
 
+            // حتى القائمة الفارغة [] استجابة صحيحة وليست خطأ.
             saveCache(userId, conversations)
+
             Result.success(conversations)
         } catch (error: Exception) {
             cachedOrFailure(userId, error)
@@ -173,7 +226,9 @@ class ChatRepository(
                         title = item.optString(
                             "title",
                             "محادثة وصال"
-                        ).ifBlank { "محادثة وصال" },
+                        ).ifBlank {
+                            "محادثة وصال"
+                        },
                         lastMessage = item.optString(
                             "lastMessage",
                             ""
@@ -185,6 +240,8 @@ class ChatRepository(
             }
 
             conversations
+        } catch (_: JSONException) {
+            null
         } catch (_: Exception) {
             null
         }
