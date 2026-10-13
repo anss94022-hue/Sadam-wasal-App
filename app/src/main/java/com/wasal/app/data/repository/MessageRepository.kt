@@ -1,12 +1,11 @@
-
 package com.wasal.app.data.repository
 
 import android.content.Context
 import com.wasal.app.data.local.AuthDataStore
 import com.wasal.app.data.model.Message
+import com.wasal.app.data.model.MessageStatus
 import com.wasal.app.data.network.CoreApiClient
 import com.wasal.app.data.network.ServerConfig
-import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -14,8 +13,7 @@ import java.io.IOException
 class MessageRepository(
     private val authDataStore: AuthDataStore
 ) {
-    private val apiClient =
-        AuthenticatedApiClient(authDataStore)
+    private val apiClient = AuthenticatedApiClient(authDataStore)
 
     private val preferences by lazy {
         authDataStore.appContext.getSharedPreferences(
@@ -32,17 +30,13 @@ class MessageRepository(
     ): Result<List<Message>> {
         if (conversationId.isBlank()) {
             return Result.failure(
-                IllegalArgumentException(
-                    "معرّف المحادثة غير موجود."
-                )
+                IllegalArgumentException("معرّف المحادثة غير موجود.")
             )
         }
 
         if (currentUserId.isBlank()) {
             return Result.failure(
-                IllegalArgumentException(
-                    "معرّف المستخدم غير موجود."
-                )
+                IllegalArgumentException("معرّف المستخدم غير موجود.")
             )
         }
 
@@ -98,21 +92,17 @@ class MessageRepository(
             val array = root.optJSONArray("messages")
                 ?: root.optJSONObject("data")
                     ?.optJSONArray("messages")
-                ?: throw IOException(
-                    "لم يرجع الخادم قائمة الرسائل."
-                )
+                ?: throw IOException("لم يرجع الخادم قائمة الرسائل.")
 
             val messages = mutableListOf<Message>()
 
             for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index)
-                    ?: continue
-
+                val item = array.optJSONObject(index) ?: continue
                 val id = item.optString("id").trim()
+
                 if (id.isBlank()) continue
 
                 val senderId = item.optString("senderId")
-
                 val content = if (item.isNull("content")) {
                     ""
                 } else {
@@ -120,10 +110,9 @@ class MessageRepository(
                 }
 
                 val createdAt = item.optString("createdAt", "")
-                val time = createdAt
-                    .replace("T", " ")
-                    .substringBefore(".")
-                    .removeSuffix("Z")
+                val time = formatTime(createdAt)
+
+                val status = parseStatus(item)
 
                 messages.add(
                     Message(
@@ -131,24 +120,18 @@ class MessageRepository(
                         content = content,
                         isMine = senderId == currentUserId,
                         time = time,
-                        type = item.optString("type", "text")
+                        type = normalizeType(
+                            item.optString("type", "text")
+                        ),
+                        status = status
                     )
                 )
             }
 
-            saveCache(
-                conversationId,
-                currentUserId,
-                messages
-            )
-
+            saveCache(conversationId, currentUserId, messages)
             Result.success(messages)
         } catch (error: Exception) {
-            cachedOrFailure(
-                conversationId,
-                currentUserId,
-                error
-            )
+            cachedOrFailure(conversationId, currentUserId, error)
         }
     }
 
@@ -170,9 +153,7 @@ class MessageRepository(
 
         if (cleanContent.isBlank()) {
             return Result.failure(
-                IllegalArgumentException(
-                    "لا يمكن إرسال رسالة فارغة."
-                )
+                IllegalArgumentException("لا يمكن إرسال رسالة فارغة.")
             )
         }
 
@@ -213,18 +194,14 @@ class MessageRepository(
         }
 
         val result = parseSentMessage(
-            response.body,
-            cleanContent,
-            "text",
-            currentUserId
+            responseBody = response.body,
+            fallbackContent = cleanContent,
+            fallbackType = "text",
+            currentUserId = currentUserId
         )
 
         result.onSuccess { message ->
-            saveSentMessage(
-                conversationId,
-                currentUserId,
-                message
-            )
+            saveSentMessage(conversationId, currentUserId, message)
         }
 
         return result
@@ -246,9 +223,7 @@ class MessageRepository(
 
         if (media.url.isBlank()) {
             return Result.failure(
-                IllegalArgumentException(
-                    "رابط المرفق غير موجود."
-                )
+                IllegalArgumentException("رابط المرفق غير موجود.")
             )
         }
 
@@ -296,21 +271,56 @@ class MessageRepository(
         }
 
         val result = parseSentMessage(
-            response.body,
-            media.url,
-            type,
-            currentUserId
+            responseBody = response.body,
+            fallbackContent = media.url,
+            fallbackType = type,
+            currentUserId = currentUserId
         )
 
         result.onSuccess { message ->
-            saveSentMessage(
-                conversationId,
-                currentUserId,
-                message
-            )
+            saveSentMessage(conversationId, currentUserId, message)
         }
 
         return result
+    }
+
+    private fun parseStatus(item: JSONObject): MessageStatus {
+        val rawStatus = item.optString("status")
+            .ifBlank { item.optString("deliveryStatus") }
+            .uppercase()
+
+        if (item.has("readAt") && !item.isNull("readAt")) {
+            return MessageStatus.READ
+        }
+
+        if (item.has("deliveredAt") && !item.isNull("deliveredAt")) {
+            return MessageStatus.DELIVERED
+        }
+
+        return when (rawStatus) {
+            "READ", "SEEN" -> MessageStatus.READ
+            "DELIVERED" -> MessageStatus.DELIVERED
+            "FAILED", "ERROR" -> MessageStatus.FAILED
+            "SENDING", "PENDING" -> MessageStatus.SENDING
+            else -> MessageStatus.SENT
+        }
+    }
+
+    private fun normalizeType(type: String): String {
+        return when (type.lowercase()) {
+            "voice", "audio" -> "audio"
+            "image" -> "image"
+            "video" -> "video"
+            "file", "document" -> "file"
+            else -> "text"
+        }
+    }
+
+    private fun formatTime(createdAt: String): String {
+        return createdAt
+            .replace("T", " ")
+            .substringBefore(".")
+            .removeSuffix("Z")
     }
 
     private fun cacheKey(
@@ -335,6 +345,7 @@ class MessageRepository(
                     .put("isMine", message.isMine)
                     .put("time", message.time)
                     .put("type", message.type)
+                    .put("status", message.status.name)
             )
         }
 
@@ -360,11 +371,16 @@ class MessageRepository(
             val messages = mutableListOf<Message>()
 
             for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index)
-                    ?: continue
-
+                val item = array.optJSONObject(index) ?: continue
                 val id = item.optString("id").trim()
+
                 if (id.isBlank()) continue
+
+                val status = runCatching {
+                    MessageStatus.valueOf(
+                        item.optString("status", "SENT")
+                    )
+                }.getOrDefault(MessageStatus.SENT)
 
                 messages.add(
                     Message(
@@ -372,7 +388,10 @@ class MessageRepository(
                         content = item.optString("content", ""),
                         isMine = item.optBoolean("isMine", false),
                         time = item.optString("time", ""),
-                        type = item.optString("type", "text")
+                        type = normalizeType(
+                            item.optString("type", "text")
+                        ),
+                        status = status
                     )
                 )
             }
@@ -388,10 +407,7 @@ class MessageRepository(
         currentUserId: String,
         error: Throwable
     ): Result<List<Message>> {
-        val cached = readCache(
-            conversationId,
-            currentUserId
-        )
+        val cached = readCache(conversationId, currentUserId)
 
         return if (cached != null) {
             Result.success(cached)
@@ -405,10 +421,7 @@ class MessageRepository(
         currentUserId: String,
         message: Message
     ) {
-        val cached = readCache(
-            conversationId,
-            currentUserId
-        ).orEmpty()
+        val cached = readCache(conversationId, currentUserId).orEmpty()
 
         if (cached.none { it.id == message.id }) {
             saveCache(
@@ -428,33 +441,28 @@ class MessageRepository(
         return try {
             val root = JSONObject(responseBody)
             val item = root.optJSONObject("message")
-                ?: throw IOException(
-                    "لم يرجع الخادم بيانات الرسالة."
-                )
+                ?: root.optJSONObject("data")
+                    ?.optJSONObject("message")
+                ?: throw IOException("لم يرجع الخادم بيانات الرسالة.")
 
             val id = item.optString("id")
+
             if (id.isBlank()) {
-                throw IOException(
-                    "لم يرجع الخادم معرّف الرسالة."
-                )
+                throw IOException("لم يرجع الخادم معرّف الرسالة.")
             }
 
-            val createdAt = item.optString("createdAt", "")
-            val time = createdAt
-                .replace("T", " ")
-                .substringBefore(".")
-                .removeSuffix("Z")
+            val status = parseStatus(item)
 
             Result.success(
                 Message(
                     id = id,
-                    content = item.optString(
-                        "content",
-                        fallbackContent
-                    ),
+                    content = item.optString("content", fallbackContent),
                     isMine = item.optString("senderId") == currentUserId,
-                    time = time,
-                    type = item.optString("type", fallbackType)
+                    time = formatTime(item.optString("createdAt", "")),
+                    type = normalizeType(
+                        item.optString("type", fallbackType)
+                    ),
+                    status = status
                 )
             )
         } catch (error: Exception) {
