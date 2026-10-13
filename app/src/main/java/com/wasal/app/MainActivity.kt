@@ -1,3 +1,4 @@
+
 package com.wasal.app
 
 import android.content.Context
@@ -97,6 +98,9 @@ class MainActivity : ComponentActivity() {
 private fun WasalHomeScreen(context: Context) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    // إشارة لفتح نموذج إضافة جهة اتصال عند الضغط على زر المحادثة الجديدة.
+    var openAddFormSignal by remember { mutableIntStateOf(0) }
+
     var selectedConversation by remember {
         mutableStateOf<Conversation?>(null)
     }
@@ -172,11 +176,6 @@ private fun WasalHomeScreen(context: Context) {
             var token = authDataStore.accessToken.first().orEmpty()
             var userId = authDataStore.userId.first().orEmpty()
 
-            /*
-             * إنشاء حساب جديد فقط عندما لا توجد جلسة محفوظة.
-             * نحتفظ برمز وصال الذي يرجع من عملية إنشاء الحساب
-             * حتى لو فشل تحميل الملف الشخصي لاحقاً.
-             */
             if (token.isBlank() && userId.isBlank()) {
                 val result = withContext(Dispatchers.IO) {
                     authRepository.createAccount()
@@ -186,10 +185,8 @@ private fun WasalHomeScreen(context: Context) {
                     throw it
                 }
 
-                // عرض رمز وصال مباشرة بعد إنشاء الحساب بنجاح.
                 wasalCode = createdWasalCode
 
-                // إعادة قراءة بيانات الجلسة التي حفظها المستودع.
                 token = authDataStore.accessToken.first().orEmpty()
                 userId = authDataStore.userId.first().orEmpty()
             }
@@ -200,13 +197,8 @@ private fun WasalHomeScreen(context: Context) {
                 )
             }
 
-            // تحميل المحادثات.
             refreshConversations(token)
 
-            /*
-             * تحديث الملف الشخصي عند توفر رمز الدخول.
-             * لا نمسح رمز وصال السابق إذا فشل هذا الطلب.
-             */
             if (token.isNotBlank()) {
                 val profileResult = withContext(Dispatchers.IO) {
                     profileRepository.getMyProfile(
@@ -388,7 +380,12 @@ private fun WasalHomeScreen(context: Context) {
                                 onConversationClick = { conversation ->
                                     selectedConversation = conversation
                                 },
-                                onSearchClick = {}
+                                onSearchClick = {},
+                                onNewConversation = {
+                                    // الانتقال إلى جهات الاتصال وفتح نموذج الرمز.
+                                    selectedTab = 1
+                                    openAddFormSignal += 1
+                                }
                             )
                         }
                     }
@@ -411,6 +408,7 @@ private fun WasalHomeScreen(context: Context) {
                                     "لم يتم العثور على محادثة لهذا المستخدم."
                             }
                         },
+                        openAddFormSignal = openAddFormSignal,
                         onAddContact = { code ->
                             if (!isAddingContact) {
                                 scope.launch {
