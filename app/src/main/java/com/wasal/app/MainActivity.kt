@@ -1,4 +1,3 @@
-
 package com.wasal.app
 
 import android.content.Context
@@ -98,7 +97,6 @@ class MainActivity : ComponentActivity() {
 private fun WasalHomeScreen(context: Context) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // إشارة لفتح نموذج إضافة جهة اتصال عند الضغط على زر المحادثة الجديدة.
     var openAddFormSignal by remember { mutableIntStateOf(0) }
 
     var selectedConversation by remember {
@@ -358,36 +356,49 @@ private fun WasalHomeScreen(context: Context) {
         ) {
             when (selectedTab) {
                 0 -> {
-                    when {
-                        isLoading -> {
-                            StatusSection(
-                                title = "جارٍ تجهيز وصال",
-                                message = "جارٍ تحميل المحادثات المحفوظة أو تحديثها."
+                    Column(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (isLoading) {
+                            Text(
+                                text = "جارٍ تحميل المحادثات...",
+                                color = WasalMuted,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = 16.dp,
+                                        vertical = 8.dp
+                                    )
+                            )
+                        } else if (
+                            errorMessage != null &&
+                            conversations.isEmpty()
+                        ) {
+                            Text(
+                                text = errorMessage!!,
+                                color = WasalMuted,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = 16.dp,
+                                        vertical = 8.dp
+                                    )
                             )
                         }
 
-                        errorMessage != null &&
-                            conversations.isEmpty() -> {
-                            StatusSection(
-                                title = "تعذر تحميل المحادثات",
-                                message = errorMessage!!
-                            )
-                        }
-
-                        else -> {
-                            ChatsScreen(
-                                conversations = conversations,
-                                onConversationClick = { conversation ->
-                                    selectedConversation = conversation
-                                },
-                                onSearchClick = {},
-                                onNewConversation = {
-                                    // الانتقال إلى جهات الاتصال وفتح نموذج الرمز.
-                                    selectedTab = 1
-                                    openAddFormSignal += 1
-                                }
-                            )
-                        }
+                        // تبقى شاشة المحادثات وزر (+) ظاهرين
+                        // حتى عند تعذر تحميل المحادثات.
+                        ChatsScreen(
+                            conversations = conversations,
+                            onConversationClick = { conversation ->
+                                selectedConversation = conversation
+                            },
+                            onSearchClick = {},
+                            onNewConversation = {
+                                selectedTab = 1
+                                openAddFormSignal += 1
+                            }
+                        )
                     }
                 }
 
