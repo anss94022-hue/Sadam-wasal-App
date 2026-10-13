@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -599,69 +601,82 @@ private fun ConversationFlow(
         mutableStateOf(false)
     }
 
+    var showAttachmentOptions by remember {
+        mutableStateOf(false)
+    }
+
     var statusMessage by remember {
         mutableStateOf<String?>(null)
     }
 
-    val picker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null && !isSending) {
-            scope.launch {
-                isSending = true
-                statusMessage = "جارٍ رفع المرفق..."
+    fun sendSelectedMedia(uri: Uri?) {
+        if (uri == null || isSending) return
 
-                try {
-                    val uploaded = withContext(Dispatchers.IO) {
-                        mediaRepository.upload(uri)
-                    }
+        scope.launch {
+            isSending = true
+            statusMessage = "جارٍ رفع المرفق..."
 
-                    val media = uploaded.getOrElse {
-                        throw it
-                    }
+            try {
+                val token = authDataStore.accessToken
+                    .first()
+                    .orEmpty()
 
-                    statusMessage =
-                        "تم رفع الملف، جارٍ إرسال الرسالة..."
+                mediaAccessToken = token
 
-                    val token = authDataStore.accessToken
-                        .first()
-                        .orEmpty()
+                val userId = authDataStore.userId
+                    .first()
+                    .orEmpty()
 
-                    mediaAccessToken = token
-
-                    val userId = authDataStore.userId
-                        .first()
-                        .orEmpty()
-
-                    if (token.isBlank() || userId.isBlank()) {
-                        throw IllegalStateException(
-                            "يلزم الاتصال بالإنترنت وتوفر جلسة دخول لإرسال المرفق."
-                        )
-                    }
-
-                    val sent = withContext(Dispatchers.IO) {
-                        messageRepository.sendMediaMessage(
-                            conversationId = conversation.id,
-                            media = media,
-                            accessToken = token,
-                            currentUserId = userId
-                        )
-                    }
-
-                    val message = sent.getOrElse {
-                        throw it
-                    }
-
-                    messages = messages + message
-                    statusMessage = "تم إرسال المرفق."
-                } catch (e: Exception) {
-                    statusMessage = e.message
-                        ?: "تعذر إرسال المرفق."
-                } finally {
-                    isSending = false
+                if (token.isBlank() || userId.isBlank()) {
+                    throw IllegalStateException(
+                        "يلزم الاتصال بالإنترنت وتوفر جلسة دخول لإرسال المرفق."
+                    )
                 }
+
+                val uploaded = withContext(Dispatchers.IO) {
+                    mediaRepository.upload(uri)
+                }
+
+                val media = uploaded.getOrElse {
+                    throw it
+                }
+
+                statusMessage = "تم رفع الملف، جارٍ إرسال الرسالة..."
+
+                val sent = withContext(Dispatchers.IO) {
+                    messageRepository.sendMediaMessage(
+                        conversationId = conversation.id,
+                        media = media,
+                        accessToken = token,
+                        currentUserId = userId
+                    )
+                }
+
+                val message = sent.getOrElse {
+                    throw it
+                }
+
+                messages = messages + message
+                statusMessage = "تم إرسال المرفق."
+            } catch (e: Exception) {
+                statusMessage = e.message
+                    ?: "تعذر إرسال المرفق."
+            } finally {
+                isSending = false
             }
         }
+    }
+
+    val galleryPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        sendSelectedMedia(uri)
+    }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        sendSelectedMedia(uri)
     }
 
     LaunchedEffect(conversation.id) {
@@ -714,15 +729,7 @@ private fun ConversationFlow(
         mediaAccessToken = mediaAccessToken,
         onAttachmentClick = {
             if (!isSending) {
-                picker.launch(
-                    arrayOf(
-                        "image/*",
-                        "video/*",
-                        "audio/*",
-                        "application/pdf",
-                        "application/octet-stream"
-                    )
-                )
+                showAttachmentOptions = true
             }
         },
         onSendMessage = { text ->
@@ -770,6 +777,79 @@ private fun ConversationFlow(
             }
         }
     )
+
+    if (showAttachmentOptions) {
+        AlertDialog(
+            onDismissRequest = {
+                showAttachmentOptions = false
+            },
+            containerColor = WasalCard,
+            title = {
+                Text(
+                    text = "إرسال مرفق",
+                    color = WasalText,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "اختر مصدر المرفق",
+                        color = WasalMuted
+                    )
+
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            showAttachmentOptions = false
+                            galleryPicker.launch("image/*")
+                        }
+                    ) {
+                        Text(
+                            text = "المعرض — الصور",
+                            color = WasalAccent
+                        )
+                    }
+
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            showAttachmentOptions = false
+                            filePicker.launch(
+                                arrayOf(
+                                    "image/*",
+                                    "video/*",
+                                    "audio/*",
+                                    "application/pdf",
+                                    "application/octet-stream"
+                                )
+                            )
+                        }
+                    ) {
+                        Text(
+                            text = "الملفات — فيديو وصوت ومستندات",
+                            color = WasalAccent
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showAttachmentOptions = false
+                    }
+                ) {
+                    Text(
+                        text = "إلغاء",
+                        color = WasalMuted
+                    )
+                }
+            }
+        )
+    }
 }
 
 @Composable
