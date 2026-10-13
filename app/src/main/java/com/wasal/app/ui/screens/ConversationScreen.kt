@@ -1,6 +1,6 @@
-
 package com.wasal.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -33,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +71,18 @@ fun ConversationScreen(
 ) {
     var draft by remember { mutableStateOf("") }
 
+    val listState = rememberLazyListState()
+
+    BackHandler {
+        onBack()
+    }
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
     CompositionLocalProvider(
         LocalLayoutDirection provides LayoutDirection.Rtl
     ) {
@@ -98,7 +112,9 @@ fun ConversationScreen(
                     shape = CircleShape,
                     color = ChatBubbleOther
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
                             title.trim().take(1).ifBlank { "و" },
                             color = ChatAccent,
@@ -110,15 +126,18 @@ fun ConversationScreen(
 
                 Spacer(Modifier.width(10.dp))
 
-                Column(Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
                     Text(
-                        title,
+                        text = title,
                         color = ChatText,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
+
                     Text(
-                        "محادثة وصال",
+                        text = "محادثة وصال",
                         color = ChatMuted,
                         fontSize = 12.sp
                     )
@@ -141,25 +160,33 @@ fun ConversationScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(ChatHeader)
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .padding(
+                            horizontal = 14.dp,
+                            vertical = 8.dp
+                        )
                 )
             }
 
             when {
                 isLoading && messages.isEmpty() -> {
                     Box(
-                        Modifier
+                        modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment =
+                                Alignment.CenterHorizontally
                         ) {
-                            CircularProgressIndicator(color = ChatAccent)
+                            CircularProgressIndicator(
+                                color = ChatAccent
+                            )
+
                             Spacer(Modifier.size(12.dp))
+
                             Text(
-                                "جارٍ تحميل الرسائل...",
+                                text = "جارٍ تحميل الرسائل...",
                                 color = ChatMuted
                             )
                         }
@@ -168,23 +195,26 @@ fun ConversationScreen(
 
                 messages.isEmpty() -> {
                     Box(
-                        Modifier
+                        modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment =
+                                Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "ابدأ محادثتك",
+                                text = "ابدأ محادثتك",
                                 color = ChatText,
                                 fontSize = 19.sp,
                                 fontWeight = FontWeight.Bold
                             )
+
                             Spacer(Modifier.size(8.dp))
+
                             Text(
-                                "اكتب رسالة أو أرفق صورة أو فيديو",
+                                text = "اكتب رسالة أو أرفق صورة أو فيديو",
                                 color = ChatMuted,
                                 fontSize = 13.sp
                             )
@@ -194,12 +224,14 @@ fun ConversationScreen(
 
                 else -> {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp),
-                        reverseLayout = true,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        reverseLayout = false,
+                        verticalArrangement =
+                            Arrangement.spacedBy(8.dp)
                     ) {
                         items(
                             items = messages,
@@ -215,7 +247,10 @@ fun ConversationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(ChatHeader)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(
+                        horizontal = 10.dp,
+                        vertical = 8.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
@@ -224,7 +259,8 @@ fun ConversationScreen(
                 ) {
                     Icon(
                         Icons.Default.AttachFile,
-                        contentDescription = "إرفاق صورة أو فيديو أو ملف",
+                        contentDescription =
+                            "إرفاق صورة أو فيديو أو ملف",
                         tint = ChatAccent
                     )
                 }
@@ -238,24 +274,29 @@ fun ConversationScreen(
                             ChatBubbleOther,
                             RoundedCornerShape(22.dp)
                         )
-                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                        .padding(
+                            horizontal = 16.dp,
+                            vertical = 13.dp
+                        ),
                     enabled = !isSending,
                     textStyle = androidx.compose.ui.text.TextStyle(
                         color = ChatText,
                         fontSize = 15.sp
                     ),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
-                        ChatAccent
-                    ),
+                    cursorBrush =
+                        androidx.compose.ui.graphics.SolidColor(
+                            ChatAccent
+                        ),
                     decorationBox = { innerTextField ->
                         Box {
                             if (draft.isEmpty()) {
                                 Text(
-                                    "اكتب رسالتك...",
+                                    text = "اكتب رسالتك...",
                                     color = ChatMuted,
                                     fontSize = 14.sp
                                 )
                             }
+
                             innerTextField()
                         }
                     }
@@ -266,6 +307,7 @@ fun ConversationScreen(
                 IconButton(
                     onClick = {
                         val text = draft.trim()
+
                         if (text.isNotEmpty() && !isSending) {
                             onSendMessage(text)
                             draft = ""
@@ -310,78 +352,112 @@ private fun MessageBubble(message: Message) {
             modifier = Modifier
                 .fillMaxWidth(0.85f)
                 .background(
-                    if (message.isMine) ChatBubbleMine else ChatBubbleOther,
+                    if (message.isMine) {
+                        ChatBubbleMine
+                    } else {
+                        ChatBubbleOther
+                    },
                     RoundedCornerShape(
                         topStart = 16.dp,
                         topEnd = 16.dp,
-                        bottomStart = if (message.isMine) 4.dp else 16.dp,
-                        bottomEnd = if (message.isMine) 16.dp else 4.dp
+                        bottomStart = if (message.isMine) {
+                            4.dp
+                        } else {
+                            16.dp
+                        },
+                        bottomEnd = if (message.isMine) {
+                            16.dp
+                        } else {
+                            4.dp
+                        }
                     )
                 )
-                .padding(horizontal = 13.dp, vertical = 9.dp)
+                .padding(
+                    horizontal = 13.dp,
+                    vertical = 9.dp
+                )
         ) {
             when (message.type.lowercase()) {
                 "image" -> {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment =
+                            Alignment.CenterVertically
                     ) {
                         Icon(
                             Icons.Default.Image,
                             contentDescription = null,
                             tint = ChatAccent
                         )
+
                         Spacer(Modifier.width(6.dp))
+
                         Text(
-                            "صورة مرفقة",
+                            text = "صورة مرفقة",
                             color = ChatText,
                             fontWeight = FontWeight.Medium
                         )
                     }
+
                     AttachmentLink(message.content)
                 }
 
                 "video" -> {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment =
+                            Alignment.CenterVertically
                     ) {
                         Icon(
                             Icons.Default.PlayCircle,
                             contentDescription = null,
                             tint = ChatAccent
                         )
+
                         Spacer(Modifier.width(6.dp))
+
                         Text(
-                            "فيديو مرفق",
+                            text = "فيديو مرفق",
                             color = ChatText,
                             fontWeight = FontWeight.Medium
                         )
                     }
+
                     AttachmentLink(message.content)
                 }
 
                 "audio" -> {
-                    Text("ملف صوتي مرفق", color = ChatText)
+                    Text(
+                        text = "ملف صوتي مرفق",
+                        color = ChatText
+                    )
+
                     AttachmentLink(message.content)
                 }
 
                 "file" -> {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment =
+                            Alignment.CenterVertically
                     ) {
                         Icon(
                             Icons.Default.Description,
                             contentDescription = null,
                             tint = ChatAccent
                         )
+
                         Spacer(Modifier.width(6.dp))
-                        Text("ملف مرفق", color = ChatText)
+
+                        Text(
+                            text = "ملف مرفق",
+                            color = ChatText
+                        )
                     }
+
                     AttachmentLink(message.content)
                 }
 
                 else -> {
                     Text(
-                        message.content,
+                        text = message.content,
                         color = ChatText,
                         fontSize = 15.sp
                     )
@@ -390,8 +466,9 @@ private fun MessageBubble(message: Message) {
 
             if (message.time.isNotBlank()) {
                 Spacer(Modifier.size(4.dp))
+
                 Text(
-                    message.time,
+                    text = message.time,
                     color = ChatMuted,
                     fontSize = 10.sp,
                     modifier = Modifier.align(Alignment.End)
