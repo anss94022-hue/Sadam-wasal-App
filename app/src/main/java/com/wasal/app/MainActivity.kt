@@ -386,8 +386,6 @@ private fun WasalHomeScreen(context: Context) {
                             )
                         }
 
-                        // تبقى شاشة المحادثات وزر (+) ظاهرين
-                        // حتى عند تعذر تحميل المحادثات.
                         ChatsScreen(
                             conversations = conversations,
                             onConversationClick = { conversation ->
@@ -589,6 +587,10 @@ private fun ConversationFlow(
         mutableStateOf<List<Message>>(emptyList())
     }
 
+    var mediaAccessToken by remember(conversation.id) {
+        mutableStateOf("")
+    }
+
     var isLoading by remember {
         mutableStateOf(true)
     }
@@ -624,6 +626,8 @@ private fun ConversationFlow(
                     val token = authDataStore.accessToken
                         .first()
                         .orEmpty()
+
+                    mediaAccessToken = token
 
                     val userId = authDataStore.userId
                         .first()
@@ -669,6 +673,8 @@ private fun ConversationFlow(
                 .first()
                 .orEmpty()
 
+            mediaAccessToken = token
+
             val userId = authDataStore.userId
                 .first()
                 .orEmpty()
@@ -705,6 +711,7 @@ private fun ConversationFlow(
         isLoading = isLoading,
         isSending = isSending,
         statusMessage = statusMessage,
+        mediaAccessToken = mediaAccessToken,
         onAttachmentClick = {
             if (!isSending) {
                 picker.launch(
@@ -727,6 +734,8 @@ private fun ConversationFlow(
                     val token = authDataStore.accessToken
                         .first()
                         .orEmpty()
+
+                    mediaAccessToken = token
 
                     val userId = authDataStore.userId
                         .first()
