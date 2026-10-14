@@ -43,22 +43,37 @@ class AuthRepository(
                 val body = response.body?.string().orEmpty()
 
                 if (!response.isSuccessful) {
-                    val error = runCatching {
-                        JSONObject(body).optString("error")
-                    }.getOrDefault("")
+                    // الخادم يعيد الكود التقني في الحقل code،
+                    // بينما الحقل error يحمل رسالة عربية موجّهة للمستخدم.
+                    val errorJson = runCatching {
+                        JSONObject(body)
+                    }.getOrNull()
+
+                    val error = errorJson
+                        ?.optString("code")
+                        .orEmpty()
+                        .ifBlank {
+                            errorJson?.optString("error").orEmpty()
+                        }
 
                     val message = when (error) {
+                        "NAME_REQUIRED",
                         "DISPLAY_NAME_REQUIRED" ->
                             "يرجى إدخال اسم العرض."
 
+                        "NAME_TOO_LONG",
                         "DISPLAY_NAME_TOO_LONG" ->
                             "اسم العرض أطول من الحد المسموح."
 
                         "WASAL_CODE_GENERATION_FAILED" ->
                             "تعذر إنشاء رمز وصال. حاول مرة أخرى."
 
-                        "ACCOUNT_CONFLICT" ->
+                        "ACCOUNT_CONFLICT",
+                        "USER_ALREADY_EXISTS" ->
                             "حدث تعارض أثناء إنشاء الحساب. حاول مرة أخرى."
+
+                        "INTERNAL_SERVER_ERROR" ->
+                            "فشل إنشاء الحساب في الخادم. حاول مرة أخرى."
 
                         "ACCOUNT_CREATION_FAILED" ->
                             "فشل إنشاء الحساب في الخادم."
