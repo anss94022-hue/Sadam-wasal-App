@@ -9,7 +9,8 @@ import java.io.IOException
 data class ProfileUser(
     val id: String,
     val displayName: String,
-    val wasalCode: String
+    val wasalCode: String,
+    val bio: String
 )
 
 class ProfileRepository {
@@ -56,6 +57,7 @@ class ProfileRepository {
                 val id = user.optString("id")
                 val displayName = user.optString("displayName")
                 val wasalCode = user.optString("wasalCode")
+                val bio = user.optString("bio")
 
                 if (
                     id.isBlank() ||
@@ -72,7 +74,8 @@ class ProfileRepository {
                         displayName = displayName.ifBlank {
                             "مستخدم وصال"
                         },
-                        wasalCode = wasalCode
+                        wasalCode = wasalCode,
+                        bio = bio
                     )
                 )
             }
@@ -148,6 +151,7 @@ class ProfileRepository {
                 val id = user.optString("id")
                 val savedName = user.optString("displayName")
                 val wasalCode = user.optString("wasalCode")
+                val bio = user.optString("bio")
 
                 if (
                     id.isBlank() ||
@@ -163,7 +167,8 @@ class ProfileRepository {
                     ProfileUser(
                         id = id,
                         displayName = savedName,
-                        wasalCode = wasalCode
+                        wasalCode = wasalCode,
+                        bio = bio
                     )
                 )
             }
@@ -171,6 +176,97 @@ class ProfileRepository {
             Result.failure(
                 IOException(
                     e.message ?: "حدث خطأ أثناء حفظ اسم العرض.",
+                    e
+                )
+            )
+        }
+    }
+
+    /**
+     * حفظ النبذة التعريفية للحساب الحالي على الخادم.
+     * يجب استدعاء الدالة من Dispatchers.IO.
+     */
+    fun updateBio(
+        bio: String,
+        accessToken: String
+    ): Result<ProfileUser> {
+
+        val cleanBio = bio.trim()
+
+        if (accessToken.isBlank()) {
+            return Result.failure(
+                IOException("انتهت جلسة وصال. سجّل الدخول مجددًا.")
+            )
+        }
+
+        if (cleanBio.length > 200) {
+            return Result.failure(
+                IOException("النبذة يجب ألا تتجاوز 200 حرف.")
+            )
+        }
+
+        return try {
+            val path =
+                ServerConfig.USERS_ENDPOINT + "/me/bio"
+
+            val requestBody = JSONObject()
+                .put("bio", cleanBio)
+                .toString()
+
+            CoreApiClient.execute(
+                CoreApiClient.put(
+                    path,
+                    requestBody,
+                    accessToken
+                )
+            ).use { response ->
+
+                val body = response.body?.string().orEmpty()
+
+                if (!response.isSuccessful) {
+                    val message = when (response.code) {
+                        400 -> "النبذة غير صالحة."
+                        401 -> "انتهت جلسة وصال. سجّل الدخول مجددًا."
+                        404 -> "لم يتم العثور على الحساب."
+                        else -> "تعذر حفظ النبذة. رمز الاستجابة: ${response.code}"
+                    }
+
+                    return Result.failure(IOException(message))
+                }
+
+                val root = JSONObject(body)
+                val user = root.optJSONObject("user")
+                    ?: return Result.failure(
+                        IOException("لم يرجع الخادم بيانات النبذة المحفوظة.")
+                    )
+
+                val id = user.optString("id")
+                val savedBio = user.optString("bio")
+                val wasalCode = user.optString("wasalCode")
+
+                if (
+                    id.isBlank() ||
+                    !wasalCode.matches(Regex("^[A-Za-z0-9]{15}$"))
+                ) {
+                    return Result.failure(
+                        IOException("بيانات الحساب المحفوظة غير مكتملة.")
+                    )
+                }
+
+                Result.success(
+                    ProfileUser(
+                        id = id,
+                        displayName = user.optString("displayName")
+                            .ifBlank { "مستخدم وصال" },
+                        wasalCode = wasalCode,
+                        bio = savedBio
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(
+                IOException(
+                    e.message ?: "حدث خطأ أثناء حفظ النبذة.",
                     e
                 )
             )

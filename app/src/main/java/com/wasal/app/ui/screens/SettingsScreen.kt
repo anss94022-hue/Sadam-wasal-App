@@ -52,6 +52,7 @@ private val SetMuted = Color(0xFF9AA7C7)
 fun SettingsScreen(
     displayName: String = "مستخدم وصال",
     wasalCode: String = "",
+    bio: String = "",
     statusMessage: String? = null,
     isBusy: Boolean = false,
     darkMode: Boolean = true,
@@ -59,6 +60,7 @@ fun SettingsScreen(
     onToggleDarkMode: (Boolean) -> Unit = {},
     onToggleUseSystemTheme: (Boolean) -> Unit = {},
     onLogout: () -> Unit = {},
+    onBioSave: (String) -> Unit = {},
     onSaveDisplayName: (String) -> Unit = {}
 ) {
     val clipboard = LocalClipboardManager.current
@@ -69,6 +71,14 @@ fun SettingsScreen(
 
     LaunchedEffect(displayName) {
         editedName = displayName
+    }
+
+    var editedBio by remember {
+        mutableStateOf(bio)
+    }
+
+    LaunchedEffect(bio) {
+        editedBio = bio
     }
 
     CompositionLocalProvider(
@@ -145,6 +155,53 @@ fun SettingsScreen(
                             "جارٍ الحفظ..."
                         } else {
                             "حفظ اسم العرض"
+                        }
+                    )
+                }
+
+                Spacer(Modifier.height(20.dp))
+
+                Text(
+                    text = "نبذة تعريفية",
+                    color = SetMuted,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = editedBio,
+                    onValueChange = {
+                        if (it.length <= 200) {
+                            editedBio = it
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isBusy,
+                    label = {
+                        Text("اكتب نبذة قصيرة عنك", color = SetMuted)
+                    }
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                Button(
+                    onClick = {
+                        onBioSave(editedBio.trim())
+                    },
+                    enabled = !isBusy && editedBio.trim() != bio.trim(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SetAccent,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = if (isBusy) {
+                            "جارٍ الحفظ..."
+                        } else {
+                            "حفظ النبذة"
                         }
                     )
                 }

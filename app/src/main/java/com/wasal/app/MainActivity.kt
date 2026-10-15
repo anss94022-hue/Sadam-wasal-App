@@ -75,6 +75,7 @@ import com.wasal.app.data.repository.ContactsRepository
 import com.wasal.app.data.repository.MediaRepository
 import com.wasal.app.data.repository.MessageRepository
 import com.wasal.app.data.repository.ProfileRepository
+import com.wasal.app.ui.screens.CallsScreen
 import com.wasal.app.ui.screens.ChatsScreen
 import com.wasal.app.ui.screens.ContactsScreen
 import com.wasal.app.ui.screens.ConversationScreen
@@ -146,6 +147,10 @@ private fun WasalHomeScreen(
         mutableStateOf(false)
     }
 
+    var isSavingBio by remember {
+        mutableStateOf(false)
+    }
+
     var conversations by remember {
         mutableStateOf<List<Conversation>>(emptyList())
     }
@@ -159,6 +164,10 @@ private fun WasalHomeScreen(
     }
 
     var wasalCode by remember {
+        mutableStateOf("")
+    }
+
+    var bio by remember {
         mutableStateOf("")
     }
 
@@ -250,6 +259,7 @@ private fun WasalHomeScreen(
 
                 profileResult.onSuccess { profile ->
                     displayName = profile.displayName
+                    bio = profile.bio
 
                     if (profile.wasalCode.isNotBlank()) {
                         wasalCode = profile.wasalCode
@@ -447,7 +457,6 @@ private fun WasalHomeScreen(
                             onConversationClick = { conversation ->
                                 selectedConversation = conversation
                             },
-                            onSearchClick = {},
                             onNewConversation = {
                                 selectedTab = 1
                                 openAddFormSignal += 1
@@ -556,9 +565,8 @@ private fun WasalHomeScreen(
                 }
 
                 3 -> {
-                    StatusSection(
-                        title = "المكالمات",
-                        message = "واجهة المكالمات تحتاج إلى استكمال الربط."
+                    CallsScreen(
+                        authDataStore = authDataStore
                     )
                 }
 
@@ -566,6 +574,7 @@ private fun WasalHomeScreen(
                     SettingsScreen(
                         displayName = displayName,
                         wasalCode = wasalCode,
+                        bio = bio,
                         statusMessage = if (isLoading) {
                             "جارٍ تحميل بيانات الحساب..."
                         } else {
@@ -582,6 +591,48 @@ private fun WasalHomeScreen(
                         onToggleUseSystemTheme = { enabled ->
                             scope.launch {
                                 settingsDataStore.setUseSystemTheme(enabled)
+                            }
+                        },
+                        onBioSave = { newBio ->
+                            scope.launch {
+                                if (isSavingBio) {
+                                    return@launch
+                                }
+
+                                isSavingBio = true
+                                errorMessage = null
+
+                                try {
+                                    val token = authDataStore
+                                        .accessToken
+                                        .first()
+                                        .orEmpty()
+
+                                    if (token.isBlank()) {
+                                        throw IllegalStateException(
+                                            "لا توجد جلسة دخول صالحة. تحقق من اتصالك بالإنترنت."
+                                        )
+                                    }
+
+                                    val result = withContext(Dispatchers.IO) {
+                                        profileRepository.updateBio(
+                                            bio = newBio,
+                                            accessToken = token
+                                        )
+                                    }
+
+                                    val savedProfile = result.getOrElse {
+                                        throw it
+                                    }
+
+                                    bio = savedProfile.bio
+                                    errorMessage = "تم حفظ النبذة بنجاح."
+                                } catch (e: Exception) {
+                                    errorMessage = e.message
+                                        ?: "تعذر حفظ النبذة."
+                                } finally {
+                                    isSavingBio = false
+                                }
                             }
                         },
                         onLogout = {
