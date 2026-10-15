@@ -40,10 +40,14 @@ class MediaRepository(
     private val tokenAuthenticator =
         TokenAuthenticator(authDataStore)
 
-    suspend fun upload(uri: Uri): Result<UploadedMedia> =
+    suspend fun upload(
+        uri: Uri,
+        mimeTypeOverride: String? = null
+    ): Result<UploadedMedia> =
         withContext(Dispatchers.IO) {
             try {
-                val mimeType = resolver.getType(uri)
+                val mimeType = mimeTypeOverride
+                    ?: resolver.getType(uri)
                     ?: "application/octet-stream"
 
                 val fileName = resolver.query(
@@ -62,7 +66,11 @@ class MediaRepository(
                     } else {
                         null
                     }
-                }?.takeIf { it.isNotBlank() } ?: "upload"
+                }?.takeIf { it.isNotBlank() }
+                    ?: uri.lastPathSegment
+                        ?.substringAfterLast('/')
+                        ?.takeIf { it.isNotBlank() }
+                    ?: "upload"
 
                 val accessToken =
                     authDataStore.accessToken.first()

@@ -27,8 +27,10 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +83,9 @@ fun ConversationScreen(
     isOtherTyping: Boolean = false,
     onDraftChanged: (Boolean) -> Unit = {},
     onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> },
+    onVoiceRecordStart: () -> Unit = {},
+    onVoiceRecordStop: () -> Unit = {},
+    isRecordingVoice: Boolean = false,
     statusMessage: String? = null,
     mediaAccessToken: String = ""
 ) {
@@ -252,6 +258,31 @@ fun ConversationScreen(
                 }
             }
 
+            if (isRecordingVoice) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(FailedStatusColor)
+                    )
+
+                    Spacer(Modifier.width(6.dp))
+
+                    Text(
+                        text = "جارٍ تسجيل رسالة صوتية... اضغط زر الإيقاف للإرسال",
+                        color = ChatMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -310,35 +341,150 @@ fun ConversationScreen(
 
                 IconButton(
                     onClick = {
-                        val text = draft.trim()
+                        when {
+                            isRecordingVoice -> {
+                                onVoiceRecordStop()
+                            }
 
-                        if (text.isNotEmpty() && !isSending) {
-                            onSendMessage(text)
-                            draft = ""
+                            draft.isNotBlank() && !isSending -> {
+                                onSendMessage(draft.trim())
+                                draft = ""
+                            }
+
+                            !isSending -> {
+                                onVoiceRecordStart()
+                            }
                         }
                     },
-                    enabled = draft.isNotBlank() && !isSending
+                    enabled = true
                 ) {
-                    if (isSending) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = ChatAccent,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "إرسال",
-                            tint = if (draft.isNotBlank()) {
-                                ChatAccent
+                    when {
+                        isRecordingVoice -> {
+                            Icon(
+                                Icons.Default.Stop,
+                                contentDescription = "إيقاف التسجيل وإرسال الرسالة الصوتية",
+                                tint = FailedStatusColor
+                            )
+                        }
+
+                        draft.isNotBlank() || isSending -> {
+                            if (isSending) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    color = ChatAccent,
+                                    strokeWidth = 2.dp
+                                )
                             } else {
-                                ChatMuted
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "إرسال",
+                                    tint = ChatAccent
+                                )
                             }
-                        )
+                        }
+
+                        else -> {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "تسجيل رسالة صوتية",
+                                tint = ChatAccent
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun VoicePlayer(
+    url: String,
+    isMine: Boolean
+) {
+    val context = LocalContext.current
+
+    var isPlaying by remember(url) {
+        mutableStateOf(false)
+    }
+
+    var player by remember(url) {
+        mutableStateOf<android.media.MediaPlayer?>(null)
+    }
+
+    fun releasePlayer() {
+        runCatching {
+            player?.release()
+        }
+
+        player = null
+        isPlaying = false
+    }
+
+    DisposableEffect(url) {
+        onDispose {
+            releasePlayer()
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        IconButton(
+            onClick = {
+                if (isPlaying) {
+                    releasePlayer()
+                    return@IconButton
+                }
+
+                releasePlayer()
+
+                val newPlayer = android.media.MediaPlayer()
+
+                runCatching {
+                    newPlayer.setAudioAttributes(
+                        android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    newPlayer.setDataSource(url)
+                    newPlayer.setOnCompletionListener {
+                        releasePlayer()
+                    }
+                    newPlayer.prepare()
+                    newPlayer.start()
+
+                    player = newPlayer
+                    isPlaying = true
+                }.onFailure {
+                    runCatching { newPlayer.release() }
+                    isPlaying = false
+                }
+            },
+            enabled = url.isNotBlank()
+        ) {
+            Icon(
+                Icons.Default.PlayCircle,
+                contentDescription = if (isPlaying) {
+                    "إيقاف تشغيل الرسالة الصوتية"
+                } else {
+                    "تشغيل الرسالة الصوتية"
+                },
+                tint = ChatAccent
+            )
+        }
+
+        Text(
+            text = if (isPlaying) {
+                "جارٍ التشغيل... اضغط للإيقاف"
+            } else {
+                "رسالة صوتية — اضغط للتشغيل"
+            },
+            color = ChatText,
+            fontSize = 13.sp
+        )
     }
 }
 
@@ -412,12 +558,10 @@ private fun MessageBubble(
                 }
 
                 "audio", "voice" -> {
-                    Text(
-                        text = "ملف صوتي مرفق",
-                        color = ChatText
+                    VoicePlayer(
+                        url = message.content,
+                        isMine = message.isMine
                     )
-
-                    AttachmentLink(message.content)
                 }
 
                 "file" -> {

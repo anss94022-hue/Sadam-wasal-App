@@ -1,6 +1,8 @@
 package com.wasal.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -57,7 +59,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.wasal.app.data.local.AuthDataStore
+import com.wasal.app.util.VoiceRecorderManager
 import com.wasal.app.data.local.SettingsDataStore
 import com.wasal.app.data.model.Contact
 import com.wasal.app.data.model.Conversation
@@ -763,6 +767,126 @@ private fun ConversationFlow(
         mutableStateOf<String?>(null)
     }
 
+    val voiceRecorder = remember(conversation.id) {
+        VoiceRecorderManager(context)
+    }
+
+    var isRecordingVoice by remember(conversation.id) {
+        mutableStateOf(false)
+    }
+
+    fun startVoiceRecording() {
+        if (isRecordingVoice || isSending) return
+
+        val started = voiceRecorder.start()
+
+        if (started) {
+            isRecordingVoice = true
+        } else {
+            statusMessage =
+                "تعذر بدء التسجيل الصوتي. تحقق من إذن الميكروفون وحاول مجددًا."
+        }
+    }
+
+    fun stopVoiceRecordingAndSend() {
+        if (!isRecordingVoice) return
+
+        isRecordingVoice = false
+
+        val recordedFile = voiceRecorder.stopAndReturnFile()
+
+        if (recordedFile == null) {
+            statusMessage = "التسجيل فارغ أو فشل، ولم يُرسل شيء."
+            return
+        }
+
+        scope.launch {
+            isSending = true
+            statusMessage = "جارٍ رفع الرسالة الصوتية..."
+
+            try {
+                val token = authDataStore.accessToken
+                    .first()
+                    .orEmpty()
+
+                mediaAccessToken = token
+
+                val userId = authDataStore.userId
+                    .first()
+                    .orEmpty()
+
+                if (token.isBlank() || userId.isBlank()) {
+                    throw IllegalStateException(
+                        "يلزم جلسة دخول لإرسال الرسالة الصوتية."
+                    )
+                }
+
+                val uploaded = withContext(Dispatchers.IO) {
+                    mediaRepository.upload(
+                        uri = Uri.fromFile(recordedFile),
+                        mimeTypeOverride = "audio/mp4"
+                    )
+                }
+
+                val media = uploaded.getOrElse { throw it }
+
+                statusMessage = "تم رفع التسجيل، جارٍ إرسال الرسالة..."
+
+                val sent = withContext(Dispatchers.IO) {
+                    messageRepository.sendMediaMessage(
+                        conversationId = conversation.id,
+                        media = media,
+                        accessToken = token,
+                        currentUserId = userId
+                    )
+                }
+
+                val message = sent.getOrElse { throw it }
+
+                messages = messages + message
+                statusMessage = "تم إرسال الرسالة الصوتية."
+            } catch (e: Exception) {
+                statusMessage = e.message
+                    ?: "تعذر إرسال الرسالة الصوتية."
+            } finally {
+                isSending = false
+                recordedFile.delete()
+            }
+        }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startVoiceRecording()
+        } else {
+            statusMessage =
+                "رُفض إذن الميكروفون. لا يمكن تسجيل رسالة صوتية دون الإذن."
+        }
+    }
+
+    fun requestVoiceRecordStart() {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (granted) {
+            startVoiceRecording()
+        } else {
+            micPermissionLauncher.launch(
+                Manifest.permission.RECORD_AUDIO
+            )
+        }
+    }
+
+    DisposableEffect(conversation.id) {
+        onDispose {
+            voiceRecorder.cancel()
+        }
+    }
+
     fun sendSelectedMedia(uri: Uri?) {
         if (uri == null || isSending) return
 
@@ -917,6 +1041,13 @@ private fun ConversationFlow(
                 showAttachmentOptions = true
             }
         },
+        onVoiceRecordStart = {
+            requestVoiceRecordStart()
+        },
+        onVoiceRecordStop = {
+            stopVoiceRecordingAndSend()
+        },
+        isRecordingVoice = isRecordingVoice,
         onSendMessage = { text ->
             scope.launch {
                 isSending = true
