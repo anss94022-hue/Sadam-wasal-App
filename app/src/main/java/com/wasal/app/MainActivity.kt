@@ -22,7 +22,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -38,7 +40,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,9 +58,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasal.app.data.local.AuthDataStore
+import com.wasal.app.data.local.SettingsDataStore
 import com.wasal.app.data.model.Contact
 import com.wasal.app.data.model.Conversation
 import com.wasal.app.data.model.Message
+import com.wasal.app.data.model.MessageStatus
+import com.wasal.app.data.network.CoreApiClient
+import com.wasal.app.data.network.SocketService
 import com.wasal.app.data.repository.AuthRepository
 import com.wasal.app.data.repository.ChatRepository
 import com.wasal.app.data.repository.ContactsRepository
@@ -67,10 +75,14 @@ import com.wasal.app.ui.screens.ChatsScreen
 import com.wasal.app.ui.screens.ContactsScreen
 import com.wasal.app.ui.screens.ConversationScreen
 import com.wasal.app.ui.screens.SettingsScreen
+import com.wasal.app.ui.screens.StatusesScreen
+import com.wasal.app.ui.theme.WasalTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 private val WasalNavy = Color(0xFF101B3A)
 private val WasalBackground = Color(0xFF0B1020)
@@ -84,11 +96,27 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
+            val settingsDataStore = remember {
+                SettingsDataStore(applicationContext)
+            }
+
+            val systemDarkMode by settingsDataStore.darkMode
+                .collectAsState(initial = true)
+
+            val systemUseThemeSetting by settingsDataStore.useSystemTheme
+                .collectAsState(initial = false)
+
             CompositionLocalProvider(
                 LocalLayoutDirection provides LayoutDirection.Rtl
             ) {
-                MaterialTheme {
-                    WasalHomeScreen(applicationContext)
+                WasalTheme(
+                    darkMode = systemDarkMode,
+                    useSystemDefault = systemUseThemeSetting
+                ) {
+                    WasalHomeScreen(
+                        applicationContext,
+                        settingsDataStore
+                    )
                 }
             }
         }
@@ -96,7 +124,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun WasalHomeScreen(context: Context) {
+private fun WasalHomeScreen(
+    context: Context,
+    settingsDataStore: SettingsDataStore
+) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
     var openAddFormSignal by remember { mutableIntStateOf(0) }
@@ -134,6 +165,12 @@ private fun WasalHomeScreen(context: Context) {
     val authDataStore = remember(context) {
         AuthDataStore(context)
     }
+
+    val darkModeState by settingsDataStore.darkMode
+        .collectAsState(initial = true)
+
+    val useSystemThemeState by settingsDataStore.useSystemTheme
+        .collectAsState(initial = false)
 
     val authRepository = remember(authDataStore) {
         AuthRepository(authDataStore)
@@ -246,6 +283,7 @@ private fun WasalHomeScreen(context: Context) {
     val tabs = listOf(
         "المحادثات",
         "جهات الاتصال",
+        "الحالات",
         "المكالمات",
         "الإعدادات"
     )
@@ -329,6 +367,18 @@ private fun WasalHomeScreen(context: Context) {
                     onClick = { selectedTab = 2 },
                     icon = {
                         Icon(
+                            Icons.Default.Campaign,
+                            contentDescription = "الحالات"
+                        )
+                    },
+                    label = { Text("الحالات") }
+                )
+
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    icon = {
+                        Icon(
                             Icons.Default.Call,
                             contentDescription = "المكالمات"
                         )
@@ -337,8 +387,8 @@ private fun WasalHomeScreen(context: Context) {
                 )
 
                 NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
                     icon = {
                         Icon(
                             Icons.Default.Settings,
@@ -496,6 +546,12 @@ private fun WasalHomeScreen(context: Context) {
                 }
 
                 2 -> {
+                    StatusesScreen(
+                        authDataStore = authDataStore
+                    )
+                }
+
+                3 -> {
                     StatusSection(
                         title = "المكالمات",
                         message = "واجهة المكالمات تحتاج إلى استكمال الربط."
@@ -512,7 +568,55 @@ private fun WasalHomeScreen(context: Context) {
                             errorMessage
                         },
                         isBusy = isLoading || isSavingDisplayName,
-                        onLogout = {},
+                        darkMode = darkModeState,
+                        useSystemTheme = useSystemThemeState,
+                        onToggleDarkMode = { enabled ->
+                            scope.launch {
+                                settingsDataStore.setDarkMode(enabled)
+                            }
+                        },
+                        onToggleUseSystemTheme = { enabled ->
+                            scope.launch {
+                                settingsDataStore.setUseSystemTheme(enabled)
+                            }
+                        },
+                        onLogout = {
+                            scope.launch {
+                                try {
+                                    val refreshToken = authDataStore
+                                        .refreshToken
+                                        .first()
+                                        .orEmpty()
+
+                                    if (refreshToken.isNotBlank()) {
+                                        withContext(Dispatchers.IO) {
+                                            runCatching {
+                                                CoreApiClient.execute(
+                                                    CoreApiClient.post(
+                                                        "/api/auth/logout",
+                                                        JSONObject()
+                                                            .put("refreshToken", refreshToken)
+                                                            .toString(),
+                                                        authDataStore.accessToken
+                                                            .first()
+                                                            .orEmpty()
+                                                            .ifBlank { null }
+                                                    )
+                                                ).close()
+                                            }
+                                        }
+                                    }
+                                } finally {
+                                    SocketService.disconnect()
+                                    authDataStore.clear()
+                                    selectedConversation = null
+                                    conversations = emptyList()
+                                    contacts = emptyList()
+                                    errorMessage =
+                                        "تم مسح الجلسة. سيُنشأ حساب جديد عند إعادة تشغيل التطبيق."
+                                }
+                            }
+                        },
                         onSaveDisplayName = { newName ->
                             scope.launch {
                                 if (isSavingDisplayName) {
@@ -587,6 +691,56 @@ private fun ConversationFlow(
 
     var messages by remember(conversation.id) {
         mutableStateOf<List<Message>>(emptyList())
+    }
+
+    var isOtherTyping by remember(conversation.id) {
+        mutableStateOf(false)
+    }
+
+    // الاتصال الفوري: رسائل جديدة ومؤشر الكتابة لكل من يدخل المحادثة
+    DisposableEffect(conversation.id, authDataStore) {
+        SocketService.init(authDataStore)
+        SocketService.connect()
+
+        val messageListener: (JSONObject) -> Unit = { payload ->
+            scope.launch {
+                val userId = authDataStore.userId.first().orEmpty()
+                val incoming = messageRepository.parseLiveMessage(
+                    payload,
+                    userId
+                ) ?: return@launch
+
+                if (incoming.senderCode.isNotBlank() &&
+                    !conversation.id.contains(incoming.senderCode)
+                ) {
+                    return@launch
+                }
+
+                val alreadyListed = messages.any { it.id == incoming.id }
+
+                if (!alreadyListed) {
+                    messages = messages + incoming
+                }
+            }
+        }
+
+        val typingListener: (JSONObject) -> Unit = { payload ->
+            if (payload.optString("conversationId") == conversation.id) {
+                isOtherTyping = payload.optBoolean("isTyping", false)
+
+                if (isOtherTyping) {
+                    scope.launch {
+                        delay(4000)
+                        isOtherTyping = false
+                    }
+                }
+            }
+        }
+
+        SocketService.on("message", messageListener)
+        SocketService.on("typing", typingListener)
+
+        onDispose { }
     }
 
     var mediaAccessToken by remember(conversation.id) {
@@ -727,6 +881,37 @@ private fun ConversationFlow(
         isSending = isSending,
         statusMessage = statusMessage,
         mediaAccessToken = mediaAccessToken,
+        isOtherTyping = isOtherTyping,
+        onDraftChanged = { isTyping ->
+            SocketService.emitTyping(conversation.id, isTyping)
+        },
+        onDeleteMessage = { message, forEveryone ->
+            scope.launch {
+                try {
+                    val token = authDataStore.accessToken
+                        .first()
+                        .orEmpty()
+
+                    withContext(Dispatchers.IO) {
+                        messageRepository.deleteMessage(
+                            messageId = message.id,
+                            accessToken = token,
+                            forEveryone = forEveryone
+                        ).getOrElse { throw it }
+                    }
+
+                    messages = messages.filterNot { it.id == message.id }
+                    statusMessage = if (forEveryone) {
+                        "تم حذف الرسالة لدى الجميع."
+                    } else {
+                        "تم حذف الرسالة لديك."
+                    }
+                } catch (e: Exception) {
+                    statusMessage = e.message
+                        ?: "تعذر حذف الرسالة."
+                }
+            }
+        },
         onAttachmentClick = {
             if (!isSending) {
                 showAttachmentOptions = true
@@ -736,6 +921,7 @@ private fun ConversationFlow(
             scope.launch {
                 isSending = true
                 statusMessage = null
+                SocketService.emitTyping(conversation.id, false)
 
                 try {
                     val token = authDataStore.accessToken

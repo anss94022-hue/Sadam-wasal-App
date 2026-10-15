@@ -284,6 +284,76 @@ class MessageRepository(
         return result
     }
 
+    fun parseLiveMessage(payload: JSONObject, currentUserId: String): Message? {
+        val id = payload.optString("id").trim()
+
+        if (id.isBlank()) return null
+
+        val senderId = payload.optString("senderId")
+        val content = if (payload.isNull("content")) {
+            ""
+        } else {
+            payload.optString("content", "")
+        }
+
+        val deleted = payload.optBoolean("deletedForEveryone", false)
+
+        return Message(
+            id = id,
+            content = if (deleted) "" else content,
+            isMine = senderId == currentUserId,
+            time = formatTime(payload.optString("createdAt", "")),
+            type = normalizeType(payload.optString("type", "text")),
+            status = parseStatus(payload),
+            senderCode = payload.optString("senderCode", ""),
+            deletedForEveryone = deleted
+        )
+    }
+
+    suspend fun deleteMessage(
+        messageId: String,
+        accessToken: String,
+        forEveryone: Boolean
+    ): Result<Unit> {
+        if (accessToken.isBlank()) {
+            return Result.failure(
+                IllegalArgumentException("رمز الدخول غير موجود.")
+            )
+        }
+
+        val scope = if (forEveryone) "everyone" else "me"
+        val path = "${ServerConfig.MESSAGES_ENDPOINT}/$messageId?scope=$scope"
+
+        val responseResult = apiClient.execute { token ->
+            CoreApiClient.delete(path, token)
+        }
+
+        val response = responseResult.getOrElse {
+            return Result.failure(it)
+        }
+
+        if (!response.isSuccessful) {
+            val error = runCatching {
+                JSONObject(response.body).optString("error")
+            }.getOrDefault("")
+
+            return Result.failure(
+                IOException(
+                    when (response.code) {
+                        401 -> "انتهت جلسة الدخول."
+                        403 -> "لا يمكنك حذف هذه الرسالة لدى الجميع."
+                        404 -> "الرسالة غير موجودة."
+                        else -> error.ifBlank {
+                            "تعذر حذف الرسالة. رمز الاستجابة: ${response.code}"
+                        }
+                    }
+                )
+            )
+        }
+
+        return Result.success(Unit)
+    }
+
     private fun parseStatus(item: JSONObject): MessageStatus {
         val rawStatus = item.optString("status")
             .ifBlank { item.optString("deliveryStatus") }

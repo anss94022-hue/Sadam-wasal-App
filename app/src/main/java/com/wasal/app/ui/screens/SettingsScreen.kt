@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -53,6 +54,10 @@ fun SettingsScreen(
     wasalCode: String = "",
     statusMessage: String? = null,
     isBusy: Boolean = false,
+    darkMode: Boolean = true,
+    useSystemTheme: Boolean = false,
+    onToggleDarkMode: (Boolean) -> Unit = {},
+    onToggleUseSystemTheme: (Boolean) -> Unit = {},
     onLogout: () -> Unit = {},
     onSaveDisplayName: (String) -> Unit = {}
 ) {
@@ -202,6 +207,61 @@ fun SettingsScreen(
                     color = SetMuted,
                     fontSize = 13.sp
                 )
+            }
+
+            Spacer(Modifier.height(18.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        SetCard,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "المظهر",
+                    color = SetMuted,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "الوضع الداكن",
+                        color = SetText,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Switch(
+                        checked = darkMode,
+                        onCheckedChange = onToggleDarkMode,
+                        enabled = !useSystemTheme
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "اعتماد إعداد النظام تلقائيًا",
+                        color = SetText,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Switch(
+                        checked = useSystemTheme,
+                        onCheckedChange = onToggleUseSystemTheme
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
@@ -76,6 +77,9 @@ fun ConversationScreen(
     onMoreClick: () -> Unit = {},
     isLoading: Boolean = false,
     isSending: Boolean = false,
+    isOtherTyping: Boolean = false,
+    onDraftChanged: (Boolean) -> Unit = {},
+    onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> },
     statusMessage: String? = null,
     mediaAccessToken: String = ""
 ) {
@@ -142,8 +146,12 @@ fun ConversationScreen(
                     )
 
                     Text(
-                        text = "محادثة وصال",
-                        color = ChatMuted,
+                        text = if (isOtherTyping) {
+                            "جارٍ الكتابة…"
+                        } else {
+                            "محادثة وصال"
+                        },
+                        color = if (isOtherTyping) ChatAccent else ChatMuted,
                         fontSize = 12.sp
                     )
                 }
@@ -236,7 +244,8 @@ fun ConversationScreen(
                         ) { message ->
                             MessageBubble(
                                 message = message,
-                                mediaAccessToken = mediaAccessToken
+                                mediaAccessToken = mediaAccessToken,
+                                onDeleteMessage = onDeleteMessage
                             )
                         }
                     }
@@ -263,7 +272,10 @@ fun ConversationScreen(
 
                 BasicTextField(
                     value = draft,
-                    onValueChange = { draft = it },
+                    onValueChange = {
+                        draft = it
+                        onDraftChanged(it.isNotBlank())
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .background(
@@ -333,7 +345,8 @@ fun ConversationScreen(
 @Composable
 private fun MessageBubble(
     message: Message,
-    mediaAccessToken: String
+    mediaAccessToken: String,
+    onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> }
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -362,6 +375,15 @@ private fun MessageBubble(
                 .padding(horizontal = 13.dp, vertical = 9.dp)
         ) {
             when (message.type.lowercase()) {
+                "deleted" -> {
+                    Text(
+                        text = "هذه الرسالة محذوفة",
+                        color = ChatMuted,
+                        fontSize = 15.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                    )
+                }
+
                 "image" -> {
                     MessageImage(
                         imageUrl = message.content,
@@ -433,6 +455,22 @@ private fun MessageBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
+                if (message.isMine && !message.deletedForEveryone) {
+                    IconButton(
+                        onClick = {
+                            onDeleteMessage(message, true)
+                        },
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "حذف الرسالة لدى الجميع",
+                            tint = ChatMuted,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+
                 if (message.time.isNotBlank()) {
                     Text(
                         text = message.time,

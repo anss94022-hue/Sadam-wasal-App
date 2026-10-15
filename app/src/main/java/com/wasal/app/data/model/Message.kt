@@ -6,7 +6,9 @@ data class Message(
     val isMine: Boolean,
     val time: String = "",
     val type: String = "text",
-    val status: MessageStatus = MessageStatus.SENT
+    val status: MessageStatus = MessageStatus.SENT,
+    val senderCode: String = "",
+    val deletedForEveryone: Boolean = false
 )
 
 enum class MessageStatus {
