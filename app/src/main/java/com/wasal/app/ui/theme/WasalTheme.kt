@@ -75,7 +75,7 @@ object WasalPalette {
     val DarkBackground = Color(0xFF0B1020)
     val DarkCard = WasalCardDark
     val DarkText = WasalTextLight
-    val LightBackground = LightBackground
-    val LightCard = LightCard
-    val LightText = LightText
+    val LightBg = LightBackground
+    val LightCardColor = LightCard
+    val LightTextColor = LightText
 }
